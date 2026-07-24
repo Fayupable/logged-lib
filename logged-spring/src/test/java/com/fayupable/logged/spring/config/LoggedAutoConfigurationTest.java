@@ -1,0 +1,199 @@
+package com.fayupable.logged.spring.config;
+
+import com.fayupable.logged.core.port.IClientInfoPort;
+import com.fayupable.logged.core.port.InvocationEventEmitter;
+import com.fayupable.logged.core.port.MetricsRecorder;
+import com.fayupable.logged.core.port.NoOpClientInfoPort;
+import com.fayupable.logged.core.port.NoOpMetricsRecorder;
+import com.fayupable.logged.spring.aspect.LoggedAspect;
+import com.fayupable.logged.spring.emitter.Slf4jInvocationEventEmitter;
+import com.fayupable.logged.spring.metrics.LazyMetricsRecorder;
+import com.fayupable.logged.spring.security.HttpRequestClientInfoAdapter;
+import com.fayupable.logged.spring.security.SpringSecurityClientInfoAdapter;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import jakarta.servlet.http.HttpServletRequest;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.test.context.FilteredClassLoader;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.core.Authentication;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+
+@DisplayName("LoggedAutoConfiguration")
+class LoggedAutoConfigurationTest {
+
+    private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(LoggedAutoConfiguration.class));
+
+    @Nested
+    @DisplayName("with no user-defined beans")
+    class Defaults {
+
+        @Test
+        @DisplayName("wires the default SLF4J event emitter")
+        void wiresDefaultEventEmitter() {
+            contextRunner.run(context -> {
+                assertThat(context).hasSingleBean(InvocationEventEmitter.class);
+                assertThat(context.getBean(InvocationEventEmitter.class)).isInstanceOf(Slf4jInvocationEventEmitter.class);
+            });
+        }
+
+        @Test
+        @DisplayName("wires the Spring Security client info adapter when it is available")
+        void wiresSpringSecurityClientInfoPort() {
+            contextRunner.run(context -> {
+                assertThat(context).hasSingleBean(IClientInfoPort.class);
+                assertThat(context.getBean(IClientInfoPort.class)).isInstanceOf(SpringSecurityClientInfoAdapter.class);
+            });
+        }
+
+        @Test
+        @DisplayName("wires a lazy metrics recorder that behaves as a no-op when no MeterRegistry is ever present")
+        void wiresNoOpMetricsRecorderWithoutMeterRegistry() {
+            contextRunner.run(context -> {
+                assertThat(context).hasSingleBean(MetricsRecorder.class);
+                MetricsRecorder recorder = context.getBean(MetricsRecorder.class);
+                assertThat(recorder).isInstanceOf(LazyMetricsRecorder.class);
+
+                assertThatCode(() -> recorder.record("SomeClass", "someMethod", 1_000_000L, true, null))
+                        .doesNotThrowAnyException();
+            });
+        }
+
+        @Test
+        @DisplayName("wires a single, non-null LoggedAspect bean")
+        void wiresLoggedAspect() {
+            contextRunner.run(context -> {
+                assertThat(context).hasSingleBean(LoggedAspect.class);
+                assertThat(context.getBean(LoggedAspect.class)).isNotNull();
+            });
+        }
+    }
+
+    @Nested
+    @DisplayName("with a MeterRegistry present")
+    class WithMeterRegistry {
+
+        @Configuration(proxyBeanMethods = false)
+        static class MeterRegistryConfiguration {
+            @Bean
+            SimpleMeterRegistry meterRegistry() {
+                return new SimpleMeterRegistry();
+            }
+        }
+
+        @Test
+        @DisplayName("actually records metrics into the registry once invoked")
+        void wiresMicrometerMetricsRecorder() {
+            contextRunner.withUserConfiguration(MeterRegistryConfiguration.class).run(context -> {
+                assertThat(context).hasSingleBean(MetricsRecorder.class);
+                MetricsRecorder recorder = context.getBean(MetricsRecorder.class);
+                assertThat(recorder).isInstanceOf(LazyMetricsRecorder.class);
+
+                recorder.record("SomeClass", "someMethod", 1_000_000L, true, null);
+
+                SimpleMeterRegistry registry = context.getBean(SimpleMeterRegistry.class);
+                assertThat(registry.find("method.invocations").counter()).isNotNull();
+            });
+        }
+    }
+
+    @Nested
+    @DisplayName("with a user-defined InvocationEventEmitter")
+    class WithUserDefinedEmitter {
+
+        @Configuration(proxyBeanMethods = false)
+        static class CustomEmitterConfiguration {
+            @Bean
+            InvocationEventEmitter customEmitter() {
+                return event -> {
+                    // custom sink, provided by the consuming application
+                };
+            }
+        }
+
+        @Test
+        @DisplayName("backs off and keeps the user's bean instead of the default")
+        void backsOffForUserBean() {
+            contextRunner.withUserConfiguration(CustomEmitterConfiguration.class).run(context -> {
+                assertThat(context).hasSingleBean(InvocationEventEmitter.class);
+                assertThat(context.getBean(InvocationEventEmitter.class)).isNotInstanceOf(Slf4jInvocationEventEmitter.class);
+            });
+        }
+    }
+
+    @Nested
+    @DisplayName("without Spring Security or Spring Web on the classpath")
+    class WithoutSpringSecurityOrWeb {
+
+        @Test
+        @DisplayName("falls back to the no-op client info port")
+        void fallsBackToNoOpClientInfoPort() {
+            contextRunner
+                    .withClassLoader(new FilteredClassLoader(Authentication.class, HttpServletRequest.class))
+                    .run(context -> {
+                        assertThat(context).hasSingleBean(IClientInfoPort.class);
+                        assertThat(context.getBean(IClientInfoPort.class)).isInstanceOf(NoOpClientInfoPort.class);
+                    });
+        }
+    }
+
+    @Nested
+    @DisplayName("with Spring Web but without Spring Security on the classpath")
+    class WithSpringWebButNoSpringSecurity {
+
+        @Test
+        @DisplayName("wires the HTTP request client info adapter instead of falling back to no-op")
+        void wiresHttpRequestClientInfoAdapter() {
+            contextRunner
+                    .withClassLoader(new FilteredClassLoader(Authentication.class))
+                    .run(context -> {
+                        assertThat(context).hasSingleBean(IClientInfoPort.class);
+                        assertThat(context.getBean(IClientInfoPort.class)).isInstanceOf(HttpRequestClientInfoAdapter.class);
+                    });
+        }
+    }
+
+    @Nested
+    @DisplayName("with logged.enabled=false")
+    class WithLoggedDisabled {
+
+        @Test
+        @DisplayName("does not wire a LoggedAspect bean")
+        void doesNotWireLoggedAspect() {
+            contextRunner.withPropertyValues("logged.enabled=false").run(context ->
+                    assertThat(context).doesNotHaveBean(LoggedAspect.class));
+        }
+    }
+
+    @Nested
+    @DisplayName("with logged.metrics.enabled=false")
+    class WithMetricsDisabled {
+
+        @Configuration(proxyBeanMethods = false)
+        static class MeterRegistryConfiguration {
+            @Bean
+            SimpleMeterRegistry meterRegistry() {
+                return new SimpleMeterRegistry();
+            }
+        }
+
+        @Test
+        @DisplayName("falls back to the no-op metrics recorder even when a MeterRegistry is present")
+        void fallsBackToNoOpMetricsRecorder() {
+            contextRunner
+                    .withUserConfiguration(MeterRegistryConfiguration.class)
+                    .withPropertyValues("logged.metrics.enabled=false")
+                    .run(context -> {
+                        assertThat(context).hasSingleBean(MetricsRecorder.class);
+                        assertThat(context.getBean(MetricsRecorder.class)).isInstanceOf(NoOpMetricsRecorder.class);
+                    });
+        }
+    }
+}

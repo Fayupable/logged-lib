@@ -1,0 +1,43 @@
+package com.fayupable.logged.spring.emitter;
+
+import com.fayupable.logged.core.model.MethodInvocationEvent;
+import com.fayupable.logged.core.port.InvocationEventEmitter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Default {@link InvocationEventEmitter} that writes each event as a single,
+ * human-readable line through SLF4J.
+ *
+ * <p>Successful calls are logged at {@code INFO}, failed calls at
+ * {@code WARN}, since a failure surfacing through a {@code @Logged} method
+ * is operationally significant even though the exception itself already
+ * propagates to the caller. The exception message is never included, only
+ * its simple class name, consistent with {@link MethodInvocationEvent}.
+ *
+ * <p>The trace id and depth carried by the event are only appended to the
+ * log line when {@link MethodInvocationEvent#depth()} is greater than zero,
+ * that is, when the call is part of a chain of nested {@code @Logged}
+ * invocations. Root-level, non-nested calls are logged without this extra
+ * detail, keeping the common case concise.
+ */
+public class Slf4jInvocationEventEmitter implements InvocationEventEmitter {
+
+    private static final Logger log = LoggerFactory.getLogger(Slf4jInvocationEventEmitter.class);
+
+    @Override
+    public void emit(MethodInvocationEvent event) {
+        long durationMs = event.durationNanos() / 1_000_000;
+        String chainSuffix = event.depth() > 0
+                ? " (trace=" + event.traceId() + ", depth=" + event.depth() + ")"
+                : "";
+
+        if (event.success()) {
+            log.info("[{}] {}.{} completed in {}ms{}",
+                    event.callerIdentity(), event.className(), event.methodName(), durationMs, chainSuffix);
+        } else {
+            log.warn("[{}] {}.{} failed after {}ms - {}{}",
+                    event.callerIdentity(), event.className(), event.methodName(), durationMs, event.exceptionType(), chainSuffix);
+        }
+    }
+}
