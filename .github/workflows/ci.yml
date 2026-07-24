@@ -4,10 +4,12 @@ on:
   push:
     branches:
       - main
+      - dev
       - 'dev/**'
   pull_request:
     branches:
       - main
+      - dev
       - 'dev/**'
   workflow_dispatch:
 
@@ -28,3 +30,22 @@ jobs:
 
       - name: Build, test, mutation test, and check style
         run: mvn -B verify
+
+      - name: Upload surefire reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: '**/target/surefire-reports/*'
+          retention-days: 14
+
+  enforce-source-branch:
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require pull requests into main to come from dev
+        run: |
+          if [[ "${{ github.head_ref }}" != "dev" && "${{ github.head_ref }}" != dev/* ]]; then
+            echo "Pull requests into main must originate from 'dev' or a 'dev/**' branch, not '${{ github.head_ref }}'."
+            exit 1
+          fi
