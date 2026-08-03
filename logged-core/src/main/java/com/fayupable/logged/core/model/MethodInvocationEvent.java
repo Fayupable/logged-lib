@@ -23,6 +23,20 @@ import java.time.Instant;
  *                         the method, or {@code null} if the call succeeded;
  *                         the exception message is never captured here,
  *                         since it may contain sensitive data
+ * @param rootCauseType    the simple class name of the deepest
+ *                         {@link Throwable#getCause()} in the chain started
+ *                         by the exception described by
+ *                         {@code exceptionType}, or {@code null} if the call
+ *                         succeeded. Equal to {@code exceptionType} itself
+ *                         when the thrown exception has no cause. Frameworks
+ *                         commonly wrap a lower-level failure (for example a
+ *                         driver-specific SQL exception) inside a generic
+ *                         exception type (for example a Spring
+ *                         {@code DataAccessException}); {@code exceptionType}
+ *                         alone would only ever show the generic wrapper, so
+ *                         this field surfaces the original failure type
+ *                         instead. As with {@code exceptionType}, only the
+ *                         class name is captured, never the message
  * @param callerIdentity   an opaque identifier describing who triggered the
  *                         call (for example an authenticated user id or a
  *                         client IP address), resolved by an adapter-specific
@@ -42,6 +56,7 @@ public record MethodInvocationEvent(
         long durationNanos,
         boolean success,
         String exceptionType,
+        String rootCauseType,
         String callerIdentity,
         String traceId,
         int depth

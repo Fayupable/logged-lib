@@ -5,17 +5,23 @@ import com.fayupable.logged.core.model.MethodInvocationEvent;
 import com.fayupable.logged.core.port.IClientInfoPort;
 import com.fayupable.logged.core.port.InvocationEventEmitter;
 import com.fayupable.logged.core.port.MetricsRecorder;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.slf4j.MDC;
 import org.springframework.aop.aspectj.annotation.AspectJProxyFactory;
 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -35,6 +41,11 @@ class LoggedAspectTest {
         eventEmitter = new RecordingEventEmitter();
         metricsRecorder = new RecordingMetricsRecorder();
         aspect = new LoggedAspect(eventEmitter, metricsRecorder, () -> CALLER_IDENTITY);
+    }
+
+    @AfterEach
+    void tearDown() {
+        MDC.clear();
     }
 
     private <T> T proxy(T target) {
@@ -64,6 +75,18 @@ class LoggedAspectTest {
             assertThat(event.success()).isTrue();
             assertThat(event.exceptionType()).isNull();
             assertThat(event.methodName()).isEqualTo("add");
+        }
+
+        @Test
+        @DisplayName("measures a plausible duration, not the sum of a nanoTime reading with itself")
+        void measuresAPlausibleDuration() {
+            Calculator calculator = proxy(new CalculatorImpl());
+
+            calculator.add(2, 3);
+
+            long durationNanos = eventEmitter.events.get(0).durationNanos();
+            assertThat(durationNanos).isPositive()
+                    .isLessThan(TimeUnit.SECONDS.toNanos(5));
         }
 
         @Test
@@ -116,6 +139,36 @@ class LoggedAspectTest {
         }
 
         @Test
+        @DisplayName("measures a plausible duration, not the sum of a nanoTime reading with itself")
+        void measuresAPlausibleDuration() {
+            Calculator calculator = proxy(new CalculatorImpl());
+
+            try {
+                calculator.divide(10, 0);
+            } catch (ArithmeticException ignored) {
+                // expected
+            }
+
+            long durationNanos = eventEmitter.events.get(0).durationNanos();
+            assertThat(durationNanos).isPositive()
+                    .isLessThan(TimeUnit.SECONDS.toNanos(5));
+        }
+
+        @Test
+        @DisplayName("closes the flow scope on the calling thread even when the intercepted method throws")
+        void closesFlowScopeWhenMethodThrows() {
+            Calculator calculator = proxy(new CalculatorImpl());
+
+            try {
+                calculator.divide(10, 0);
+            } catch (ArithmeticException ignored) {
+                // expected
+            }
+
+            assertThat(FlowContextHolder.snapshot()).isNull();
+        }
+
+        @Test
         @DisplayName("never captures the exception message")
         void neverCapturesExceptionMessage() {
             Calculator calculator = proxy(new CalculatorImpl());
@@ -130,6 +183,39 @@ class LoggedAspectTest {
             System.out.println("Captured event: " + event);
 
             assertThat(event.toString()).doesNotContain("by zero");
+        }
+
+        @Test
+        @DisplayName("reports the same root cause type as exception type when the exception has no cause")
+        void rootCauseEqualsExceptionTypeWhenNoCause() {
+            Calculator calculator = proxy(new CalculatorImpl());
+
+            try {
+                calculator.divide(10, 0);
+            } catch (ArithmeticException ignored) {
+                // expected
+            }
+
+            MethodInvocationEvent event = eventEmitter.events.get(0);
+
+            assertThat(event.rootCauseType()).isEqualTo(event.exceptionType());
+        }
+
+        @Test
+        @DisplayName("reports the deepest cause's type when the thrown exception wraps another exception")
+        void reportsDeepestCauseType() {
+            Calculator calculator = proxy(new WrappingCalculatorImpl());
+
+            try {
+                calculator.divide(10, 0);
+            } catch (IllegalStateException ignored) {
+                // expected
+            }
+
+            MethodInvocationEvent event = eventEmitter.events.get(0);
+
+            assertThat(event.exceptionType()).isEqualTo("IllegalStateException");
+            assertThat(event.rootCauseType()).isEqualTo("ArithmeticException");
         }
 
         @Test
@@ -293,6 +379,192 @@ class LoggedAspectTest {
     }
 
     @Nested
+    @DisplayName("on a method returning CompletableFuture")
+    class OnCompletableFuture {
+
+        @Test
+        @DisplayName("does not emit until the returned future actually completes")
+        void doesNotEmitBeforeCompletion() {
+            AsyncService service = proxy(new AsyncServiceImpl());
+            CompletableFuture<Integer> manuallyCompleted = new CompletableFuture<>();
+
+            service.manualAsync(manuallyCompleted);
+
+            assertThat(eventEmitter.events).isEmpty();
+
+            manuallyCompleted.complete(99);
+
+            assertThat(eventEmitter.events).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("closes the flow scope and clears the MDC synchronously, before the future even completes")
+        void closesFlowScopeAndMdcSynchronously() {
+            AsyncService service = proxy(new AsyncServiceImpl());
+            CompletableFuture<Integer> manuallyCompleted = new CompletableFuture<>();
+
+            service.manualAsync(manuallyCompleted);
+
+            assertThat(FlowContextHolder.snapshot())
+                    .as("flow scope must already be closed on the calling thread, before the future completes")
+                    .isNull();
+            assertThat(MDC.get(LoggedMdcKeys.TRACE_ID))
+                    .as("MDC must already be cleared on the calling thread, before the future completes")
+                    .isNull();
+
+            manuallyCompleted.complete(99);
+        }
+
+        @Test
+        @DisplayName("emits success with a duration reflecting the real asynchronous work, not just submission")
+        void emitsSuccessAfterRealCompletion() throws Exception {
+            AsyncService service = proxy(new AsyncServiceImpl());
+
+            Integer value = service.computeAsync(21).get(5, TimeUnit.SECONDS);
+
+            assertThat(value).isEqualTo(42);
+            assertThat(eventEmitter.events).hasSize(1);
+            MethodInvocationEvent event = eventEmitter.events.get(0);
+            System.out.println("ASYNC EVENT -> " + event);
+            assertThat(event.success()).isTrue();
+            assertThat(event.durationNanos()).isGreaterThanOrEqualTo(TimeUnit.MILLISECONDS.toNanos(15));
+        }
+
+        @Test
+        @DisplayName("still returns the same value to the caller as an unadvised call would")
+        void returnsSameValueAsCaller() throws Exception {
+            AsyncService service = proxy(new AsyncServiceImpl());
+
+            Integer value = service.computeAsync(10).get(5, TimeUnit.SECONDS);
+
+            assertThat(value).isEqualTo(20);
+        }
+
+        @Test
+        @DisplayName("records a failure thrown directly by the async work")
+        void recordsDirectFailure() {
+            AsyncService service = proxy(new AsyncServiceImpl());
+
+            awaitCompletion(service.failDirectlyAsync());
+
+            assertThat(eventEmitter.events).hasSize(1);
+            MethodInvocationEvent event = eventEmitter.events.get(0);
+            System.out.println("ASYNC FAILURE EVENT -> " + event);
+            assertThat(event.success()).isFalse();
+            assertThat(event.exceptionType()).isEqualTo("ArithmeticException");
+            assertThat(event.rootCauseType()).isEqualTo("ArithmeticException");
+            assertThat(event.durationNanos()).isPositive()
+                    .isLessThan(TimeUnit.SECONDS.toNanos(5));
+        }
+
+        @Test
+        @DisplayName("unwraps CompletionException to report the actual exception thrown by a chained stage")
+        void unwrapsCompletionExceptionFromChainedStage() {
+            AsyncService service = proxy(new AsyncServiceImpl());
+
+            awaitCompletion(service.failWrappedAsync());
+
+            assertThat(eventEmitter.events).hasSize(1);
+            MethodInvocationEvent event = eventEmitter.events.get(0);
+            System.out.println("ASYNC WRAPPED FAILURE EVENT -> " + event);
+            assertThat(event.exceptionType()).isEqualTo("IllegalStateException");
+            assertThat(event.rootCauseType()).isEqualTo("IllegalStateException");
+            assertThat(event.exceptionType()).isNotEqualTo("CompletionException");
+        }
+
+        @Test
+        @DisplayName("still propagates the original failure to a caller waiting on the future")
+        void stillPropagatesFailureToCaller() {
+            AsyncService service = proxy(new AsyncServiceImpl());
+            CompletableFuture<Integer> future = service.failDirectlyAsync();
+
+            assertThatThrownBy(future::join)
+                    .hasRootCauseInstanceOf(ArithmeticException.class);
+        }
+
+        private void awaitCompletion(CompletableFuture<?> future) {
+            try {
+                future.join();
+            } catch (CompletionException ignored) {
+                // expected: we only need the future to have completed before asserting
+            }
+        }
+    }
+
+    @Nested
+    @DisplayName("MDC propagation")
+    class MdcPropagationBehavior {
+
+        @Test
+        @DisplayName("writes trace id, depth, class name, and method name for the duration of the call")
+        void writesMdcKeysDuringCall() {
+            MdcAwareServiceImpl service = new MdcAwareServiceImpl();
+            MdcAwareService proxied = proxy(service);
+
+            proxied.doWork();
+
+            MethodInvocationEvent event = eventEmitter.events.get(0);
+            assertThat(service.capturedTraceId.get()).isEqualTo(event.traceId());
+            assertThat(service.capturedDepth.get()).isEqualTo(String.valueOf(event.depth()));
+            assertThat(service.capturedClassName.get()).isEqualTo(event.className());
+            assertThat(service.capturedMethodName.get()).isEqualTo(event.methodName());
+        }
+
+        @Test
+        @DisplayName("clears the MDC once a root-level call returns")
+        void clearsMdcAfterRootCallReturns() {
+            MdcAwareService proxied = proxy(new MdcAwareServiceImpl());
+
+            proxied.doWork();
+
+            assertThat(MDC.get(LoggedMdcKeys.TRACE_ID)).isNull();
+            assertThat(MDC.get(LoggedMdcKeys.CLASS_NAME)).isNull();
+        }
+
+        @Test
+        @DisplayName("restores the outer call's MDC values once a nested call returns")
+        void restoresOuterMdcValuesAfterNestedCallReturns() {
+            MdcNestedInnerImpl inner = new MdcNestedInnerImpl();
+            MdcNestedOuterImpl outer = new MdcNestedOuterImpl(proxy(inner));
+            MdcNestedOuter proxiedOuter = proxy(outer);
+
+            proxiedOuter.outer();
+
+            assertThat(outer.depthDuringOuter.get()).isEqualTo("0");
+            assertThat(inner.depthDuringInner.get()).isEqualTo("1");
+            assertThat(outer.depthAfterInnerReturns.get()).isEqualTo("0");
+        }
+
+        @Test
+        @DisplayName("still clears the MDC when the intercepted method throws")
+        void clearsMdcWhenMethodThrows() {
+            Calculator calculator = proxy(new CalculatorImpl());
+
+            try {
+                calculator.divide(10, 0);
+            } catch (ArithmeticException ignored) {
+                // expected
+            }
+
+            assertThat(MDC.get(LoggedMdcKeys.TRACE_ID)).isNull();
+            assertThat(MDC.get(LoggedMdcKeys.CLASS_NAME)).isNull();
+        }
+
+        @Test
+        @DisplayName("does not touch the MDC at all when disabled")
+        void doesNotTouchMdcWhenDisabled() {
+            LoggedAspect mdcDisabledAspect = new LoggedAspect(eventEmitter, metricsRecorder, () -> CALLER_IDENTITY, false);
+            AspectJProxyFactory factory = new AspectJProxyFactory(new MdcAwareServiceImpl());
+            factory.addAspect(mdcDisabledAspect);
+            MdcAwareService proxied = factory.getProxy();
+
+            proxied.doWork();
+
+            assertThat(MDC.getCopyOfContextMap()).isNull();
+        }
+    }
+
+    @Nested
     @DisplayName("robustness against misbehaving observability collaborators")
     class Robustness {
 
@@ -345,6 +617,40 @@ class LoggedAspectTest {
 
             assertThat(calculator.add(2, 3)).isEqualTo(5);
         }
+
+        @Test
+        @DisplayName("still restores the flow scope and MDC on this thread even when a collaborator throws an Error")
+        void restoresFlowScopeAndMdcWhenCollaboratorThrowsError() {
+            LoggedAspect faultyAspect = new LoggedAspect(
+                    eventEmitter,
+                    (className, methodName, durationNanos, success, exceptionType) -> {
+                        throw new SimulatedObservabilityError("metrics backend crashed unrecoverably");
+                    },
+                    () -> CALLER_IDENTITY
+            );
+            AspectJProxyFactory factory = new AspectJProxyFactory(new CalculatorImpl());
+            factory.addAspect(faultyAspect);
+            Calculator calculator = factory.getProxy();
+
+            assertThatThrownBy(() -> calculator.add(2, 3))
+                    .isInstanceOf(SimulatedObservabilityError.class);
+
+            assertThat(FlowContextHolder.snapshot()).isNull();
+            assertThat(MDC.get(LoggedMdcKeys.TRACE_ID)).isNull();
+        }
+
+        /**
+         * Deliberately an {@link Error}, not a {@link RuntimeException}:
+         * {@code LoggedAspect} only catches {@code RuntimeException} inside
+         * {@code recordObservability}, by design, so this simulates the one
+         * category of collaborator failure that is expected to actually
+         * propagate past it.
+         */
+        private static class SimulatedObservabilityError extends Error {
+            SimulatedObservabilityError(String message) {
+                super(message);
+            }
+        }
     }
 
     interface ChainLink {
@@ -387,6 +693,24 @@ class LoggedAspectTest {
         }
     }
 
+    static class WrappingCalculatorImpl implements Calculator {
+        @Logged(slowThresholdMs = 1000, sampleRate = 1.0)
+        @Override
+        public int add(int a, int b) {
+            return a + b;
+        }
+
+        @Logged(slowThresholdMs = 1000, sampleRate = 1.0)
+        @Override
+        public int divide(int a, int b) {
+            try {
+                return a / b;
+            } catch (ArithmeticException cause) {
+                throw new IllegalStateException("calculation failed", cause);
+            }
+        }
+    }
+
     static class SlowCalculatorImpl implements Calculator {
         @Logged(slowThresholdMs = 0, sampleRate = 0.0)
         @Override
@@ -411,6 +735,110 @@ class LoggedAspectTest {
         @Override
         public int divide(int a, int b) {
             return a / b;
+        }
+    }
+
+    interface AsyncService {
+        CompletableFuture<Integer> computeAsync(int value);
+
+        CompletableFuture<Integer> failDirectlyAsync();
+
+        CompletableFuture<Integer> failWrappedAsync();
+
+        CompletableFuture<Integer> manualAsync(CompletableFuture<Integer> future);
+    }
+
+    static class AsyncServiceImpl implements AsyncService {
+        @Logged(slowThresholdMs = 1000, sampleRate = 1.0)
+        @Override
+        public CompletableFuture<Integer> computeAsync(int value) {
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    Thread.sleep(20);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                return value * 2;
+            });
+        }
+
+        @Logged(slowThresholdMs = 1000, sampleRate = 1.0)
+        @Override
+        public CompletableFuture<Integer> failDirectlyAsync() {
+            return CompletableFuture.supplyAsync(() -> {
+                throw new ArithmeticException("boom");
+            });
+        }
+
+        @Logged(slowThresholdMs = 1000, sampleRate = 1.0)
+        @Override
+        public CompletableFuture<Integer> failWrappedAsync() {
+            return CompletableFuture.supplyAsync(() -> 10)
+                    .thenApply(v -> {
+                        throw new IllegalStateException("boom");
+                    });
+        }
+
+        @Logged(slowThresholdMs = 1000, sampleRate = 1.0)
+        @Override
+        public CompletableFuture<Integer> manualAsync(CompletableFuture<Integer> future) {
+            return future;
+        }
+    }
+
+    interface MdcAwareService {
+        void doWork();
+    }
+
+    static class MdcAwareServiceImpl implements MdcAwareService {
+        final AtomicReference<String> capturedTraceId = new AtomicReference<>();
+        final AtomicReference<String> capturedDepth = new AtomicReference<>();
+        final AtomicReference<String> capturedClassName = new AtomicReference<>();
+        final AtomicReference<String> capturedMethodName = new AtomicReference<>();
+
+        @Logged(slowThresholdMs = 1000, sampleRate = 1.0)
+        @Override
+        public void doWork() {
+            capturedTraceId.set(MDC.get(LoggedMdcKeys.TRACE_ID));
+            capturedDepth.set(MDC.get(LoggedMdcKeys.DEPTH));
+            capturedClassName.set(MDC.get(LoggedMdcKeys.CLASS_NAME));
+            capturedMethodName.set(MDC.get(LoggedMdcKeys.METHOD_NAME));
+        }
+    }
+
+    interface MdcNestedOuter {
+        void outer();
+    }
+
+    interface MdcNestedInner {
+        void inner();
+    }
+
+    static class MdcNestedOuterImpl implements MdcNestedOuter {
+        private final MdcNestedInner inner;
+        final AtomicReference<String> depthDuringOuter = new AtomicReference<>();
+        final AtomicReference<String> depthAfterInnerReturns = new AtomicReference<>();
+
+        MdcNestedOuterImpl(MdcNestedInner inner) {
+            this.inner = inner;
+        }
+
+        @Logged(slowThresholdMs = 1000, sampleRate = 1.0)
+        @Override
+        public void outer() {
+            depthDuringOuter.set(MDC.get(LoggedMdcKeys.DEPTH));
+            inner.inner();
+            depthAfterInnerReturns.set(MDC.get(LoggedMdcKeys.DEPTH));
+        }
+    }
+
+    static class MdcNestedInnerImpl implements MdcNestedInner {
+        final AtomicReference<String> depthDuringInner = new AtomicReference<>();
+
+        @Logged(slowThresholdMs = 1000, sampleRate = 1.0)
+        @Override
+        public void inner() {
+            depthDuringInner.set(MDC.get(LoggedMdcKeys.DEPTH));
         }
     }
 
@@ -464,7 +892,7 @@ class LoggedAspectTest {
         @Override
         public void record(String className, String methodName, long durationNanos, boolean success, String exceptionType) {
             MethodInvocationEvent recorded = new MethodInvocationEvent(
-                    className, methodName, java.time.Instant.now(), durationNanos, success, exceptionType, "n/a", "n/a", -1
+                    className, methodName, java.time.Instant.now(), durationNanos, success, exceptionType, exceptionType, "n/a", "n/a", -1
             );
             recordings.add(recorded);
             System.out.println("METRIC -> " + recorded);

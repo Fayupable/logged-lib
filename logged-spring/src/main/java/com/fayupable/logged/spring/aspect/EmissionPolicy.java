@@ -37,6 +37,29 @@ final class EmissionPolicy {
             return true;
         }
 
-        return ThreadLocalRandom.current().nextDouble() < logged.sampleRate();
+        return ThreadLocalRandom.current().nextDouble() < clampSampleRate(logged.sampleRate());
+    }
+
+    /**
+     * Clamps {@code sampleRate} to the documented {@code [0.0, 1.0]} range
+     * of {@link Logged#sampleRate()}.
+     *
+     * <p>{@code @Logged} annotation attributes cannot enforce a value range
+     * at compile time the way a method parameter could with a runtime
+     * assertion at the call site, so a consumer can write
+     * {@code @Logged(sampleRate = 2.0)} or a negative value without any
+     * compiler or startup-time error. Left unclamped, {@link
+     * ThreadLocalRandom#nextDouble()}'s {@code [0.0, 1.0)} range makes a
+     * value above {@code 1.0} behave as "always sample" and a negative
+     * value behave as "never sample" anyway, so this never causes incorrect
+     * behavior — but relying on that coincidence would leave the actual
+     * intent undefined. Clamping makes the resulting behavior explicit and
+     * independent of {@link ThreadLocalRandom}'s specific range.
+     *
+     * @param sampleRate the raw {@link Logged#sampleRate()} value
+     * @return {@code sampleRate} restricted to {@code [0.0, 1.0]}
+     */
+    private static double clampSampleRate(double sampleRate) {
+        return Math.clamp(sampleRate, 0.0, 1.0);
     }
 }

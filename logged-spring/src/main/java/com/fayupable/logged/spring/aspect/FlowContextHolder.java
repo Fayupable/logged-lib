@@ -64,4 +64,65 @@ final class FlowContextHolder {
             }
         }
     }
+
+    /**
+     * Returns the {@link FlowContext} currently active on this thread,
+     * without modifying it, or {@code null} if no {@code @Logged} call is
+     * in progress on this thread.
+     *
+     * <p>This is the read side of propagating a call chain across a thread
+     * boundary: code about to hand work off to another thread (for example
+     * submitting it to an {@link java.util.concurrent.Executor}) calls this
+     * on the submitting thread to capture what should be restored once the
+     * work actually runs. Because {@link FlowContext} is an immutable
+     * record, the returned value is safe to pass to another thread without
+     * any further synchronization.
+     *
+     * @return the active flow context, or {@code null} if none is active
+     */
+    static FlowContext snapshot() {
+        return FLOW.get();
+    }
+
+    /**
+     * Makes {@code context} the active {@link FlowContext} on the calling
+     * thread and returns a {@link Runnable} that undoes this, restoring
+     * whatever context was active before this call.
+     *
+     * <p>This is the write side of propagating a call chain across a thread
+     * boundary, used together with {@link #snapshot()}: the thread that
+     * will actually run the handed-off work calls this with the context
+     * captured on the original thread, so that any nested {@code @Logged}
+     * call made from within that work is recognized as part of the same
+     * chain instead of starting a new one. Unlike {@link #enter()}, this
+     * does not derive a deeper context via {@link FlowContext#next()} — the
+     * handed-off work is a continuation of the same logical step, not a new
+     * one, so the depth carried by {@code context} is reused as-is.
+     *
+     * <p>The returned {@link Runnable} must be run once the handed-off work
+     * completes, typically in a {@code finally} block, so that a thread
+     * reused by a pool (for example between two unrelated tasks) does not
+     * keep leaking a stale context into whatever runs on it next.
+     *
+     * @param context the context captured by {@link #snapshot()} on the
+     *                thread that is handing off work, or {@code null} if
+     *                that thread had none active
+     * @return a {@link Runnable} that restores this thread's previous
+     *         context; never {@code null}
+     */
+    static Runnable adopt(FlowContext context) {
+        FlowContext previous = FLOW.get();
+        if (context == null) {
+            FLOW.remove();
+        } else {
+            FLOW.set(context);
+        }
+        return () -> {
+            if (previous == null) {
+                FLOW.remove();
+            } else {
+                FLOW.set(previous);
+            }
+        };
+    }
 }

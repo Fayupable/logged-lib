@@ -15,11 +15,26 @@ import org.springframework.beans.factory.ObjectProvider;
  * auto-configurations, an order this module cannot reliably pin itself
  * against across Spring Boot versions. Resolving lazily through
  * {@link ObjectProvider}, on the other hand, is unaffected by that
- * ordering: by the time any {@code @Logged} method is actually invoked,
- * the application context has fully started, and any {@link MeterRegistry}
- * bean that is ever going to exist already does.
+ * ordering in the common case: by the time any {@code @Logged} method is
+ * actually invoked, the application context has usually fully started, and
+ * any {@link MeterRegistry} bean that is ever going to exist already does.
+ *
+ * <p>That said, a {@code @Logged} method can still be invoked earlier than
+ * that — for example from another bean's {@code @PostConstruct} — before a
+ * {@link MeterRegistry} bean has been created. Only the <em>found</em>
+ * outcome is cached in {@link #delegate}: if no {@link MeterRegistry} is
+ * available yet, this class deliberately does not pin itself to
+ * {@link NoOpMetricsRecorder} forever, and instead checks again on every
+ * subsequent call until one is found. Caching a negative result here would
+ * silently and permanently disable metrics for the rest of the
+ * application's lifetime the moment this class lost that one-time race,
+ * which is a far worse failure mode than re-checking an already-cheap
+ * {@link ObjectProvider#getIfAvailable()} call a few extra times early in
+ * the application's startup.
  */
 public class LazyMetricsRecorder implements MetricsRecorder {
+
+    private static final MetricsRecorder NO_OP = new NoOpMetricsRecorder();
 
     private final ObjectProvider<MeterRegistry> meterRegistryProvider;
     private volatile MetricsRecorder delegate;
@@ -39,10 +54,14 @@ public class LazyMetricsRecorder implements MetricsRecorder {
             return resolved;
         }
         synchronized (this) {
-            if (delegate == null) {
-                MeterRegistry registry = meterRegistryProvider.getIfAvailable();
-                delegate = registry != null ? new MicrometerMetricsRecorder(registry) : new NoOpMetricsRecorder();
+            if (delegate != null) {
+                return delegate;
             }
+            MeterRegistry registry = meterRegistryProvider.getIfAvailable();
+            if (registry == null) {
+                return NO_OP;
+            }
+            delegate = new MicrometerMetricsRecorder(registry);
             return delegate;
         }
     }

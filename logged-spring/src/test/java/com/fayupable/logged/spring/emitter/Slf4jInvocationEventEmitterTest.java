@@ -42,13 +42,17 @@ class Slf4jInvocationEventEmitterTest {
 
     private MethodInvocationEvent successEvent(int depth) {
         return new MethodInvocationEvent(
-                "UserService", "getUser", Instant.now(), 12_000_000L, true, null, CALLER_IDENTITY, "abc123", depth
+                "UserService", "getUser", Instant.now(), 12_000_000L, true, null, null, CALLER_IDENTITY, "abc123", depth
         );
     }
 
     private MethodInvocationEvent failureEvent(int depth) {
+        return failureEvent(depth, "IllegalArgumentException");
+    }
+
+    private MethodInvocationEvent failureEvent(int depth, String rootCauseType) {
         return new MethodInvocationEvent(
-                "UserService", "getUser", Instant.now(), 5_000_000L, false, "IllegalArgumentException",
+                "UserService", "getUser", Instant.now(), 5_000_000L, false, "IllegalArgumentException", rootCauseType,
                 CALLER_IDENTITY, "abc123", depth
         );
     }
@@ -133,6 +137,28 @@ class Slf4jInvocationEventEmitterTest {
             String message = printedMessage();
 
             assertThat(message).contains("IllegalArgumentException");
+        }
+
+        @Test
+        @DisplayName("omits root cause when it is the same type as the thrown exception")
+        void omitsRootCauseWhenSameAsExceptionType() {
+            emitter.emit(failureEvent(0, "IllegalArgumentException"));
+
+            String message = printedMessage();
+
+            assertThat(message).doesNotContain("caused by");
+        }
+
+        @Test
+        @DisplayName("includes root cause when it differs from the thrown exception's type")
+        void includesRootCauseWhenItDiffers() {
+            emitter.emit(failureEvent(0, "SQLException"));
+
+            String message = printedMessage();
+
+            assertThat(message)
+                    .contains("IllegalArgumentException")
+                    .contains("caused by SQLException");
         }
     }
 }

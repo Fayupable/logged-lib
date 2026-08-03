@@ -133,5 +133,26 @@ class MicrometerMetricsRecorderTest {
             assertThat(invocationCounter.count()).isEqualTo(2.0);
             assertThat(timer.count()).isEqualTo(3L);
         }
+
+        @Test
+        @DisplayName("does not conflate two different (class, method) pairs whose fully qualified names share a dot boundary")
+        void doesNotConflateAmbiguousFullyQualifiedNames() {
+            recorder.record("com.example", "FooBar", 10_000_000L, true, null);
+            recorder.record("com.example.FooBar", "unrelated", 20_000_000L, true, null);
+
+            Counter firstCounter = meterRegistry.find("method.invocations")
+                    .tag("class", "com.example")
+                    .tag("method", "FooBar")
+                    .tag("outcome", "success")
+                    .counter();
+            Counter secondCounter = meterRegistry.find("method.invocations")
+                    .tag("class", "com.example.FooBar")
+                    .tag("method", "unrelated")
+                    .tag("outcome", "success")
+                    .counter();
+
+            assertThat(firstCounter.count()).isEqualTo(1.0);
+            assertThat(secondCounter.count()).isEqualTo(1.0);
+        }
     }
 }
