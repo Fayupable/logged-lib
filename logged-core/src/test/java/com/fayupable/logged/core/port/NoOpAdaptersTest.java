@@ -17,7 +17,7 @@ class NoOpAdaptersTest {
     void noOpInvocationEventEmitterDoesNotThrow() {
         InvocationEventEmitter emitter = new NoOpInvocationEventEmitter();
         MethodInvocationEvent event = new MethodInvocationEvent(
-                "SomeClass", "someMethod", Instant.now(), 1_000_000L, true, null, "unknown", "trace-1", 0
+                "SomeClass", "someMethod", Instant.now(), 1_000_000L, true, null, null, "unknown", "trace-1", 0
         );
 
         assertThatCode(() -> emitter.emit(event)).doesNotThrowAnyException();

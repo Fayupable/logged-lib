@@ -23,6 +23,12 @@ class EmissionPolicyTest {
         if (slowThresholdMs == 100 && sampleRate == 1.0) {
             return AnnotationHolder.class.getMethod("thresholdOneHundredAlwaysSampled");
         }
+        if (slowThresholdMs == 100 && sampleRate == 2.0) {
+            return AnnotationHolder.class.getMethod("thresholdOneHundredOverSampled");
+        }
+        if (slowThresholdMs == 100 && sampleRate == -0.5) {
+            return AnnotationHolder.class.getMethod("thresholdOneHundredNegativeSampled");
+        }
         throw new IllegalArgumentException("No fixture method for " + slowThresholdMs + "/" + sampleRate);
     }
 
@@ -90,6 +96,22 @@ class EmissionPolicyTest {
 
             assertThat(EmissionPolicy.shouldEmit(logged, 1L, true)).isFalse();
         }
+
+        @Test
+        @DisplayName("clamps a sampleRate above 1.0 to behave as 'always sample'")
+        void clampsSampleRateAboveOne() throws NoSuchMethodException {
+            Logged logged = loggedWith(100, 2.0);
+
+            assertThat(EmissionPolicy.shouldEmit(logged, 1L, true)).isTrue();
+        }
+
+        @Test
+        @DisplayName("clamps a negative sampleRate to behave as 'never sample'")
+        void clampsNegativeSampleRate() throws NoSuchMethodException {
+            Logged logged = loggedWith(100, -0.5);
+
+            assertThat(EmissionPolicy.shouldEmit(logged, 1L, true)).isFalse();
+        }
     }
 
     private interface AnnotationHolder {
@@ -98,5 +120,11 @@ class EmissionPolicyTest {
 
         @Logged(slowThresholdMs = 100, sampleRate = 1.0)
         void thresholdOneHundredAlwaysSampled();
+
+        @Logged(slowThresholdMs = 100, sampleRate = 2.0)
+        void thresholdOneHundredOverSampled();
+
+        @Logged(slowThresholdMs = 100, sampleRate = -0.5)
+        void thresholdOneHundredNegativeSampled();
     }
 }

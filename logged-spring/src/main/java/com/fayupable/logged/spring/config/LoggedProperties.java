@@ -25,6 +25,7 @@ public class LoggedProperties {
 
     private final ClientInfo clientInfo = new ClientInfo();
     private final Metrics metrics = new Metrics();
+    private final Mdc mdc = new Mdc();
 
     public boolean isEnabled() {
         return enabled;
@@ -40,6 +41,10 @@ public class LoggedProperties {
 
     public Metrics getMetrics() {
         return metrics;
+    }
+
+    public Mdc getMdc() {
+        return mdc;
     }
 
     /**
@@ -80,6 +85,30 @@ public class LoggedProperties {
          * {@code true}. Disabling this falls back to a no-op
          * {@link com.fayupable.logged.core.port.MetricsRecorder} even when a
          * {@code MeterRegistry} bean is present.
+         */
+        private boolean enabled = true;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+    }
+
+    /**
+     * Properties controlling MDC propagation.
+     */
+    public static class Mdc {
+
+        /**
+         * Whether {@link com.fayupable.logged.spring.aspect.LoggedMdcKeys}
+         * are written to the current thread's MDC while a {@code @Logged}
+         * method runs. Defaults to {@code true}. Disabling this is useful
+         * for an application that manages its own MDC entries and wants to
+         * avoid any risk of key collision, or that wants to avoid the extra
+         * {@code MDC.put}/{@code MDC.remove} calls on a very hot path.
          */
         private boolean enabled = true;
 

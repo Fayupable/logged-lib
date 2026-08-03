@@ -34,6 +34,15 @@ import java.util.concurrent.TimeUnit;
  * prohibitively expensive, but it still allocates a {@code Meter.Id} and
  * performs a map lookup on every call; caching avoids repeating that work
  * on every single invocation of a hot {@code @Logged} method.
+ *
+ * <p>Cache keys are dedicated records ({@link InvocationCounterKey},
+ * {@link DurationTimerKey}, {@link ErrorCounterKey}) rather than
+ * concatenated strings. {@code className} may be a fully qualified name
+ * (per {@link MetricsRecorder#record}'s contract), which can itself contain
+ * {@code '.'} characters; a string key built by joining fields with a
+ * separator could then theoretically collide between two different
+ * {@code (class, method, outcome)} triples. A record's {@code equals()}
+ * compares each field independently, so no such ambiguity is possible.
  */
 public class MicrometerMetricsRecorder implements MetricsRecorder {
 
@@ -45,9 +54,9 @@ public class MicrometerMetricsRecorder implements MetricsRecorder {
     private static final String ERROR_OUTCOME = "error";
 
     private final MeterRegistry meterRegistry;
-    private final ConcurrentHashMap<String, Counter> invocationCounters = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, Timer> durationTimers = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, Counter> errorCounters = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<InvocationCounterKey, Counter> invocationCounters = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<DurationTimerKey, Timer> durationTimers = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<ErrorCounterKey, Counter> errorCounters = new ConcurrentHashMap<>();
 
     public MicrometerMetricsRecorder(MeterRegistry meterRegistry) {
         this.meterRegistry = meterRegistry;
@@ -81,29 +90,50 @@ public class MicrometerMetricsRecorder implements MetricsRecorder {
     }
 
     private Counter invocationCounter(String className, String methodName, String outcome) {
-        String key = className + '.' + methodName + '.' + outcome;
-        return invocationCounters.computeIfAbsent(key, ignored -> Counter.builder(INVOCATIONS_METRIC)
-                .tag("class", className)
-                .tag("method", methodName)
-                .tag("outcome", outcome)
+        InvocationCounterKey key = new InvocationCounterKey(className, methodName, outcome);
+        return invocationCounters.computeIfAbsent(key, k -> Counter.builder(INVOCATIONS_METRIC)
+                .tag("class", k.className())
+                .tag("method", k.methodName())
+                .tag("outcome", k.outcome())
                 .register(meterRegistry));
     }
 
     private Timer durationTimer(String className, String methodName) {
-        String key = className + '.' + methodName;
-        return durationTimers.computeIfAbsent(key, ignored -> Timer.builder(DURATION_METRIC)
-                .tag("class", className)
-                .tag("method", methodName)
+        DurationTimerKey key = new DurationTimerKey(className, methodName);
+        return durationTimers.computeIfAbsent(key, k -> Timer.builder(DURATION_METRIC)
+                .tag("class", k.className())
+                .tag("method", k.methodName())
                 .publishPercentileHistogram()
                 .register(meterRegistry));
     }
 
     private Counter errorCounter(String className, String methodName, String exceptionType) {
-        String key = className + '.' + methodName + '.' + exceptionType;
-        return errorCounters.computeIfAbsent(key, ignored -> Counter.builder(ERRORS_METRIC)
-                .tag("class", className)
-                .tag("method", methodName)
-                .tag("exception", exceptionType)
+        ErrorCounterKey key = new ErrorCounterKey(className, methodName, exceptionType);
+        return errorCounters.computeIfAbsent(key, k -> Counter.builder(ERRORS_METRIC)
+                .tag("class", k.className())
+                .tag("method", k.methodName())
+                .tag("exception", k.exceptionType())
                 .register(meterRegistry));
+    }
+
+    /**
+     * Identifies a single {@code method.invocations} counter by class,
+     * method, and outcome.
+     */
+    private record InvocationCounterKey(String className, String methodName, String outcome) {
+    }
+
+    /**
+     * Identifies a single {@code method.duration} timer by class and
+     * method.
+     */
+    private record DurationTimerKey(String className, String methodName) {
+    }
+
+    /**
+     * Identifies a single {@code method.errors} counter by class, method,
+     * and exception type.
+     */
+    private record ErrorCounterKey(String className, String methodName, String exceptionType) {
     }
 }

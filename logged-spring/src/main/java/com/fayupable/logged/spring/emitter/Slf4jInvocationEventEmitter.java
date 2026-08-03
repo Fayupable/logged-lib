@@ -20,6 +20,12 @@ import org.slf4j.LoggerFactory;
  * that is, when the call is part of a chain of nested {@code @Logged}
  * invocations. Root-level, non-nested calls are logged without this extra
  * detail, keeping the common case concise.
+ *
+ * <p>{@link MethodInvocationEvent#rootCauseType()} is only appended to a
+ * failure line when it differs from {@link MethodInvocationEvent#exceptionType()},
+ * that is, when the thrown exception actually wraps a different underlying
+ * cause. When the two are equal, showing the root cause a second time would
+ * add nothing, so it is omitted to keep the common case concise.
  */
 public class Slf4jInvocationEventEmitter implements InvocationEventEmitter {
 
@@ -36,8 +42,12 @@ public class Slf4jInvocationEventEmitter implements InvocationEventEmitter {
             log.info("[{}] {}.{} completed in {}ms{}",
                     event.callerIdentity(), event.className(), event.methodName(), durationMs, chainSuffix);
         } else {
-            log.warn("[{}] {}.{} failed after {}ms - {}{}",
-                    event.callerIdentity(), event.className(), event.methodName(), durationMs, event.exceptionType(), chainSuffix);
+            boolean rootCauseDiffers = event.rootCauseType() != null && !event.rootCauseType().equals(event.exceptionType());
+            String causeSuffix = rootCauseDiffers ? " (caused by " + event.rootCauseType() + ")" : "";
+
+            log.warn("[{}] {}.{} failed after {}ms - {}{}{}",
+                    event.callerIdentity(), event.className(), event.methodName(), durationMs,
+                    event.exceptionType(), causeSuffix, chainSuffix);
         }
     }
 }

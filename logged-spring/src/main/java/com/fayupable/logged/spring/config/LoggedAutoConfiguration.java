@@ -116,7 +116,8 @@ public class LoggedAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(LoggedAspect.class)
     @ConditionalOnProperty(prefix = "logged", name = "enabled", havingValue = "true", matchIfMissing = true)
-    public LoggedAspect loggedAspect(InvocationEventEmitter eventEmitter, MetricsRecorder metricsRecorder, IClientInfoPort clientInfoPort) {
-        return new LoggedAspect(eventEmitter, metricsRecorder, clientInfoPort);
+    public LoggedAspect loggedAspect(InvocationEventEmitter eventEmitter, MetricsRecorder metricsRecorder,
+                                      IClientInfoPort clientInfoPort, LoggedProperties properties) {
+        return new LoggedAspect(eventEmitter, metricsRecorder, clientInfoPort, properties.getMdc().isEnabled());
     }
 }
