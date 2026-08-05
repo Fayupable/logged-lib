@@ -33,9 +33,11 @@ public class OrderService {
 - [Call chain tracking](#call-chain-tracking)
 - [Async, `@Async`, and virtual thread support](#async-async-and-virtual-thread-support)
 - [Structured logging (MDC)](#structured-logging-mdc)
+- [JSON event emission](#json-event-emission)
 - [Cross-service tracing over Kafka and RabbitMQ](#cross-service-tracing-over-kafka-and-rabbitmq)
 - [Cross-service tracing over HTTP](#cross-service-tracing-over-http)
 - [Where `@Logged` belongs](#where-logged-belongs)
+- [Testing with logged-test](#testing-with-logged-test)
 - [Configuration](#configuration)
 - [Modules](#modules)
 - [Metrics](#metrics)
@@ -269,6 +271,29 @@ logged:
 
 `FlowContextPropagatingExecutor` and `FlowContextTaskDecorator` (see [Async, `@Async`, and virtual thread support](#async-async-and-virtual-thread-support)) propagate the *entire* MDC context map across a thread hand-off, not only these four keys — so any MDC entries your own code has set (a request id from a web filter, for example) survive a thread boundary the same way this library's own do.
 
+## JSON event emission
+
+The default `Slf4jInvocationEventEmitter` writes a human-readable prose line, which is easy to read at a terminal but awkward for a structured logging backend (Loki, Elasticsearch, Datadog, and similar) that parses each log line as JSON: the whole line either fails to parse or gets indexed as one opaque string field, so you cannot filter or aggregate on individual fields such as `className` or `success`.
+
+`JsonInvocationEventEmitter` is a drop-in alternative that writes the exact same `MethodInvocationEvent` fields as a single line of JSON instead:
+
+```json
+{"className":"OrderService","methodName":"placeOrder","timestamp":"2026-08-04T10:00:01.052Z","durationMs":187,"success":true,"exceptionType":null,"rootCauseType":null,"callerIdentity":"user:42","traceId":"fd6a56d153407322","depth":0}
+```
+
+Register it in place of the default:
+
+```java
+@Bean
+InvocationEventEmitter invocationEventEmitter() {
+    return new JsonInvocationEventEmitter();
+}
+```
+
+No JSON library is used or required — every field on `MethodInvocationEvent` is a primitive, a `String`, or an `Instant`, so a small hand-written writer is enough, and this stays true to the rest of this library: no dependency is added to pick this up. String fields are escaped for quotes, backslashes, and control characters before being written, so the emitted line is always valid JSON regardless of what a class or method name happens to contain.
+
+Like the default emitter, successful calls are logged at `INFO` and failed calls at `WARN`, and the exception message is never included — only its simple class name, consistent with everything else this library records.
+
 ## Cross-service tracing over Kafka and RabbitMQ
 
 Everything above — call chain tracking, MDC, async propagation — works within a single service. A call chain that crosses a message queue into a different service starts over with a brand-new `traceId` on the other side by default: nothing carries it across a Kafka or RabbitMQ message on its own.
@@ -392,6 +417,66 @@ or remove @Logged from this method until reactive support is added.
 
 This is deliberate too, for a different reason than entities/repositories: a reactive type is lazy — nothing runs until something subscribes — so by the time `@Logged` could record anything, the pipeline has only been assembled, not executed. Recording at that point would silently report a near-zero duration and unconditional success no matter what the pipeline actually does once subscribed to, which is worse than not measuring it at all, since it looks like real data. Rejecting it at startup is preferred over recording something misleading. `@Logged` already supports `CompletableFuture` correctly (see [Async, `@Async`, and virtual thread support](#async-async-and-virtual-thread-support)); full reactive support (bridging `FlowContext` and MDC through Reactor's `Context`) is a substantially larger feature and not yet implemented.
 
+## Testing with logged-test
+
+Asserting that `@Logged` actually observed a call correctly has historically meant either capturing and parsing log output, or hand-rolling a throwaway `InvocationEventEmitter`/`MetricsRecorder`/`IClientInfoPort` in every project that depends on this library. `logged-test` ships ready-made, thread-safe in-memory implementations of all three output ports instead, so a test can assert directly on Java objects.
+
+Add it as a test-scoped dependency:
+
+```xml
+<dependency>
+    <groupId>com.fayupable</groupId>
+    <artifactId>logged-test</artifactId>
+    <version>1.1.0</version>
+    <scope>test</scope>
+</dependency>
+```
+
+Register the ones you need as `@TestConfiguration` beans — `@ConditionalOnMissingBean` in `LoggedAutoConfiguration` picks them up in place of the real `Slf4jInvocationEventEmitter`/`MicrometerMetricsRecorder`/caller resolver automatically:
+
+```java
+@TestConfiguration
+class LoggedTestConfig {
+
+    @Bean
+    InvocationEventEmitter invocationEventEmitter() {
+        return new InMemoryInvocationEventEmitter();
+    }
+
+    @Bean
+    MetricsRecorder metricsRecorder() {
+        return new InMemoryMetricsRecorder();
+    }
+
+    @Bean
+    IClientInfoPort clientInfoPort() {
+        return new InMemoryClientInfoPort("user:42");
+    }
+}
+
+@SpringBootTest
+@Import(LoggedTestConfig.class)
+class OrderServiceTest {
+
+    @Autowired InMemoryInvocationEventEmitter emitter;
+    @Autowired OrderService orderService;
+
+    @Test
+    void recordsSuccessfulOrderProcessing() {
+        orderService.processOrder(order);
+
+        MethodInvocationEvent event = emitter.lastEvent();
+        assertThat(event.methodName()).isEqualTo("processOrder");
+        assertThat(event.success()).isTrue();
+        assertThat(event.callerIdentity()).isEqualTo("user:42");
+    }
+}
+```
+
+The same three classes work without Spring at all, against a `LoggedAspect` (or any other interceptor) constructed directly in a plain JUnit test — `logged-test` depends on nothing but `logged-core`.
+
+Each class exposes `clear()` so a single instance can be reused across test methods without leaking state between them, and is backed by a `CopyOnWriteArrayList` so recording from a different thread — for example inside work wrapped by `FlowContextPropagatingExecutor` — never loses an event or corrupts the recorded list.
+
 ## Configuration
 
 Every property below is optional and defaults to preserving the library's out-of-the-box behavior unmodified.
@@ -415,10 +500,12 @@ logged:
 |---|---|---|
 | `logged-core` | nothing | ✅ |
 | `logged-spring` | `logged-core`, Spring Boot (all `provided`) | ✅ |
+| `logged-test` | `logged-core` | ✅ |
 | `logged-benchmarks` | `logged-core`, `logged-spring` | ❌ internal only |
 
 - **`logged-core`** is framework-free: the `@Logged` annotation, the `MethodInvocationEvent`/`FlowContext` models, and the output ports (`InvocationEventEmitter`, `MetricsRecorder`, `IClientInfoPort`), each with a no-op default. It has zero dependencies and can be used standalone by any interception mechanism — not only Spring AOP.
 - **`logged-spring`** is the Spring Boot adapter: the `@Around` aspect, an SLF4J-backed emitter, a Micrometer-backed metrics recorder, a Spring Security-backed caller resolver, the startup guard described above, full auto-configuration, the `FlowContextPropagatingExecutor`/`FlowContextTaskDecorator` pair and the `RequestAttributes`/`SecurityContext` propagating decorators described in [Async, `@Async`, and virtual thread support](#async-async-and-virtual-thread-support), the MDC propagation described in [Structured logging (MDC)](#structured-logging-mdc), the `KafkaTraceHeaderCarrier`/`RabbitTraceHeaderCarrier` pair described in [Cross-service tracing over Kafka and RabbitMQ](#cross-service-tracing-over-kafka-and-rabbitmq), and the HTTP integrations (`HttpTraceClientHttpRequestInterceptor`, `FeignTraceRequestInterceptor`, `HttpTraceExchangeFilterFunction`, `HttpTraceServletFilter`, and the underlying `HttpTraceHeaderCarrier`) described in [Cross-service tracing over HTTP](#cross-service-tracing-over-http). Every Spring/Micrometer/Security/Kafka/RabbitMQ/Feign/WebFlux dependency it declares is `provided` scope, so none of it is forced onto a consuming project's dependency tree — if your application doesn't already have Micrometer, Spring Security, Kafka, RabbitMQ, Feign, or WebFlux, the corresponding feature simply falls back to a no-op, or is simply never invoked.
+- **`logged-test`** provides in-memory test doubles for all three output ports, described in [Testing with logged-test](#testing-with-logged-test). It depends only on `logged-core`, so it works whether or not `logged-spring` is on the classpath.
 - **`logged-benchmarks`** never leaves this repository; see [Benchmarks](#benchmarks).
 
 ## Metrics
