@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.fayupable</groupId>
+        <artifactId>logged-lib</artifactId>
+        <version>1.2.0</version>
+    </parent>
+
+    <artifactId>logged-test</artifactId>
+    <packaging>jar</packaging>
+
+    <name>logged-test</name>
+    <description>In-memory test doubles for logged-core's output ports, so a consuming project can assert on @Logged behavior without wiring a real emitter, metrics backend, or caller resolver.</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.fayupable</groupId>
+            <artifactId>logged-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.pitest</groupId>
+                <artifactId>pitest-maven</artifactId>
+                <configuration>
+                    <targetClasses>
+                        <param>com.fayupable.logged.test.*</param>
+                    </targetClasses>
+                    <targetTests>
+                        <param>com.fayupable.logged.test.*</param>
+                    </targetTests>
+                    <mutationThreshold>90</mutationThreshold>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>pitest-mutation-coverage</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>mutationCoverage</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

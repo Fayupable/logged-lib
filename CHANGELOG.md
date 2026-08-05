@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-08-04
+
+### Added
+
+- New `logged-test` module: in-memory, thread-safe test doubles for all three output ports — `InMemoryInvocationEventEmitter`, `InMemoryMetricsRecorder` (backed by a new `RecordedMetric` record), and `InMemoryClientInfoPort` — so a consuming project can assert directly on `@Logged` behavior in tests instead of parsing log output or hand-rolling its own stubs. Depends only on `logged-core`, so it works with or without `logged-spring` on the classpath.
+- New `JsonInvocationEventEmitter` (`logged-spring`): writes each `MethodInvocationEvent` as a single line of structured JSON through SLF4J instead of `Slf4jInvocationEventEmitter`'s human-readable line, for applications shipping logs to Loki/Elasticsearch/Datadog and similar backends that parse each line as JSON. Uses a small hand-written JSON writer with proper string escaping instead of adding a JSON library dependency.
+
 ## [1.1.0] - 2026-08-03
 
 ### Added
@@ -48,6 +55,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `logged-benchmarks`: internal JMH benchmarks measuring the aspect's overhead against a direct, uninstrumented call.
 - Quality gates: Pitest mutation testing (`logged-core` 100%, `logged-spring` 98%) and Checkstyle (0 violations), both enforced via `mvn verify`.
 
-[Unreleased]: https://github.com/fayupable/logged-lib/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/fayupable/logged-lib/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/fayupable/logged-lib/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/fayupable/logged-lib/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/fayupable/logged-lib/releases/tag/v1.0.0
