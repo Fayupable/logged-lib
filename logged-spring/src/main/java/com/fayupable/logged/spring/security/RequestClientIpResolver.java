@@ -30,7 +30,9 @@ final class RequestClientIpResolver {
     }
 
     /**
-     * Resolves the current request's client IP address.
+     * Resolves the current request's client IP address, prefixed for use as
+     * a {@link com.fayupable.logged.core.port.IClientInfoPort#resolveCallerIdentity()}
+     * fallback tier.
      *
      * @param trustForwardedHeaders whether the {@code X-Forwarded-For}
      *                              header may be trusted over
@@ -40,6 +42,23 @@ final class RequestClientIpResolver {
      *         thread (for example, a scheduled job)
      */
     static String resolveClientIp(boolean trustForwardedHeaders) {
+        String ip = resolveIp(trustForwardedHeaders);
+        return ip != null ? "ip:" + ip : null;
+    }
+
+    /**
+     * Resolves the current request's client IP address, unprefixed, for use
+     * as a {@link com.fayupable.logged.core.port.IClientInfoPort#resolveCallerIp()}
+     * dedicated field rather than as part of the caller-identity string.
+     *
+     * @param trustForwardedHeaders whether the {@code X-Forwarded-For}
+     *                              header may be trusted over
+     *                              {@link HttpServletRequest#getRemoteAddr()}
+     * @return the caller's raw IP address, or {@code null} if there is no
+     *         active HTTP request on this thread (for example, a scheduled
+     *         job)
+     */
+    static String resolveIp(boolean trustForwardedHeaders) {
         HttpServletRequest request = currentRequest();
         if (request == null) {
             return null;
@@ -48,11 +67,11 @@ final class RequestClientIpResolver {
         if (trustForwardedHeaders) {
             String forwardedFor = request.getHeader(FORWARDED_FOR_HEADER);
             if (forwardedFor != null && !forwardedFor.isBlank()) {
-                return "ip:" + forwardedFor.split(",")[0].trim();
+                return forwardedFor.split(",")[0].trim();
             }
         }
 
-        return "ip:" + request.getRemoteAddr();
+        return request.getRemoteAddr();
     }
 
     private static HttpServletRequest currentRequest() {

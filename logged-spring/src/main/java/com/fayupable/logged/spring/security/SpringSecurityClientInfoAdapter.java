@@ -56,4 +56,16 @@ public class SpringSecurityClientInfoAdapter implements IClientInfoPort {
     private boolean isAnonymous(Authentication authentication) {
         return ANONYMOUS_PRINCIPAL.equals(authentication.getPrincipal());
     }
+
+    /**
+     * Resolves the caller's IP address independent of {@link #resolveCallerIdentity()}'s
+     * outcome, unlike that method's authenticated-principal-first fallback
+     * chain. This has no dependency on {@link SecurityContextHolder} state,
+     * so it resolves the same way whether or not the current invocation
+     * also resolves to an authenticated user.
+     */
+    @Override
+    public String resolveCallerIp() {
+        return RequestClientIpResolver.resolveIp(trustForwardedHeaders);
+    }
 }

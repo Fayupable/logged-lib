@@ -536,6 +536,21 @@ The default `IClientInfoPort` (active whenever Spring Security and Spring Web ar
 
 The client IP is read from `getRemoteAddr()`, **not** from `X-Forwarded-For`, by default. That header is controlled by the client and can be forged by anyone unless the application sits behind a proxy configured to strip and re-set it — a deployment detail this library cannot know on its own. If your application does sit behind such a proxy, set `logged.client-info.trust-forwarded-headers=true` explicitly, mirroring how Spring Security itself requires trusted proxies to be declared rather than assumed.
 
+### Recording the caller's IP alongside identity
+
+The resolution chain above is exclusive: once an authenticated principal resolves, the IP is discarded. For most `@Logged` methods that's the right tradeoff. For a small set of security-sensitive operations — login, password reset, TOTP verification, admin mutations — the IP remains valuable for audit and rate-limiting purposes even when the call also resolves to an authenticated identity, and especially on a *failed* attempt, where the caller's identity may be unverified or entirely absent:
+
+```java
+@Logged(includeIp = true)
+public LoginResponse login(String username, String password) {
+    // ...
+}
+```
+
+Setting `includeIp = true` records the caller's IP unconditionally, in `MethodInvocationEvent#callerIp()` and, if MDC is enabled, under `LoggedMdcKeys.CALLER_IP` (`logged.callerIp`) — as a field alongside `callerIdentity`, not in place of it, and independent of whatever the identity tier resolves to. This is per-annotation, matching `slowThresholdMs`/`sampleRate`, rather than a global flag: IP is personal data under most privacy frameworks, so it is only recorded on the methods that explicitly opt in, not on every `@Logged` call across the application.
+
+`callerIp` is resolved synchronously on the calling thread, at the same point `callerIdentity` is — including for a method returning `CompletableFuture`, where it is captured before the async work begins, for the same reason described in [Async, `@Async`, and virtual thread support](#async-async-and-virtual-thread-support). It is `null` whenever it cannot be resolved (no active HTTP request, or a custom `IClientInfoPort` that does not implement `resolveCallerIp()`), never a placeholder string like `"unknown"` — consistent with `exceptionType`/`rootCauseType`, this library's other nullable structured fields.
+
 ## Benchmarks
 
 `LoggedAspect`'s overhead is measured with [JMH](https://openjdk.org/projects/code-tools/jmh/), comparing a direct method call against the same call made through a `@Logged`-intercepted proxy, with every port wired to its no-op implementation. This isolates the cost of proxy dispatch, `FlowContext` `ThreadLocal` management, and the emission/metrics decision path, from the cost of any actual logging or metrics backend I/O.

@@ -42,7 +42,7 @@ class Slf4jInvocationEventEmitterTest {
 
     private MethodInvocationEvent successEvent(int depth) {
         return new MethodInvocationEvent(
-                "UserService", "getUser", Instant.now(), 12_000_000L, true, null, null, CALLER_IDENTITY, "abc123", depth
+                "UserService", "getUser", Instant.now(), 12_000_000L, true, null, null, CALLER_IDENTITY, null, "abc123", depth
         );
     }
 
@@ -53,7 +53,13 @@ class Slf4jInvocationEventEmitterTest {
     private MethodInvocationEvent failureEvent(int depth, String rootCauseType) {
         return new MethodInvocationEvent(
                 "UserService", "getUser", Instant.now(), 5_000_000L, false, "IllegalArgumentException", rootCauseType,
-                CALLER_IDENTITY, "abc123", depth
+                CALLER_IDENTITY, null, "abc123", depth
+        );
+    }
+
+    private MethodInvocationEvent successEventWithIp(String callerIp) {
+        return new MethodInvocationEvent(
+                "UserService", "getUser", Instant.now(), 12_000_000L, true, null, null, CALLER_IDENTITY, callerIp, "abc123", 0
         );
     }
 
@@ -159,6 +165,31 @@ class Slf4jInvocationEventEmitterTest {
             assertThat(message)
                     .contains("IllegalArgumentException")
                     .contains("caused by SQLException");
+        }
+    }
+
+    @Nested
+    @DisplayName("callerIp")
+    class CallerIp {
+
+        @Test
+        @DisplayName("includes the IP when present")
+        void includesIpWhenPresent() {
+            emitter.emit(successEventWithIp("203.0.113.5"));
+
+            String message = printedMessage();
+
+            assertThat(message).contains("ip=203.0.113.5");
+        }
+
+        @Test
+        @DisplayName("omits any IP marker when not present")
+        void omitsIpWhenAbsent() {
+            emitter.emit(successEventWithIp(null));
+
+            String message = printedMessage();
+
+            assertThat(message).doesNotContain("ip=");
         }
     }
 }

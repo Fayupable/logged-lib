@@ -169,4 +169,32 @@ class SpringSecurityClientInfoAdapterTest {
             assertThat(trustingAdapter.resolveCallerIdentity()).isEqualTo("ip:203.0.113.5");
         }
     }
+
+    @Nested
+    @DisplayName("resolveCallerIp")
+    class ResolveCallerIp {
+
+        @Test
+        @DisplayName("resolves the raw IP address, unprefixed, even without authentication")
+        void resolvesRawIpWithoutAuthentication() {
+            withRequestFrom("203.0.113.5");
+
+            assertThat(adapter.resolveCallerIp()).isEqualTo("203.0.113.5");
+        }
+
+        @Test
+        @DisplayName("resolves the raw IP address even when the caller also has an authenticated identity")
+        void resolvesRawIpAlongsideAuthenticatedIdentity() {
+            authenticateAs("enis");
+            withRequestFrom("203.0.113.5");
+
+            assertThat(adapter.resolveCallerIp()).isEqualTo("203.0.113.5");
+        }
+
+        @Test
+        @DisplayName("resolves to null when there is no active HTTP request")
+        void resolvesNullWithoutRequest() {
+            assertThat(adapter.resolveCallerIp()).isNull();
+        }
+    }
 }

@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-08-14
+
+### Added
+
+- New `logged-test` module: in-memory, thread-safe test doubles for all three output ports — `InMemoryInvocationEventEmitter`, `InMemoryMetricsRecorder` (backed by a new `RecordedMetric` record), and `InMemoryClientInfoPort` — so a consuming project can assert directly on `@Logged` behavior in tests instead of parsing log output or hand-rolling its own stubs. Depends only on `logged-core`, so it works with or without `logged-spring` on the classpath.
+- New `JsonInvocationEventEmitter` (`logged-spring`): writes each `MethodInvocationEvent` as a single line of structured JSON through SLF4J instead of `Slf4jInvocationEventEmitter`'s human-readable line, for applications shipping logs to Loki/Elasticsearch/Datadog and similar backends that parse each line as JSON. Uses a small hand-written JSON writer with proper string escaping instead of adding a JSON library dependency.
+- `@Logged(includeIp = true)`: records the caller's IP address alongside whatever `callerIdentity` resolves to, instead of only as its fallback tier, for security-sensitive operations (login, password reset, TOTP verification, admin mutations) where the IP remains valuable for audit/rate-limiting purposes even when the call also resolves to an authenticated identity — especially on a failed attempt. Adds `MethodInvocationEvent#callerIp()`, `IClientInfoPort#resolveCallerIp()` (a `default` method returning `null`, so existing implementations remain source-compatible), real implementations in `SpringSecurityClientInfoAdapter`/`HttpRequestClientInfoAdapter`, a new `LoggedMdcKeys.CALLER_IP` MDC key, `callerIp` output in both `Slf4jInvocationEventEmitter` and `JsonInvocationEventEmitter`, and IP support in `logged-test`'s `InMemoryClientInfoPort`. Resolved synchronously alongside `callerIdentity`, so it is correctly captured for `CompletableFuture`-returning methods the same way `callerIdentity` already is.
+
 ## [1.2.2] - 2026-08-14
 
 ### Fixed
@@ -61,7 +69,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `logged-benchmarks`: internal JMH benchmarks measuring the aspect's overhead against a direct, uninstrumented call.
 - Quality gates: Pitest mutation testing (`logged-core` 100%, `logged-spring` 98%) and Checkstyle (0 violations), both enforced via `mvn verify`.
 
-[Unreleased]: https://github.com/fayupable/logged-lib/compare/v1.2.2...HEAD
+[Unreleased]: https://github.com/fayupable/logged-lib/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/fayupable/logged-lib/compare/v1.2.2...v1.3.0
 [1.2.2]: https://github.com/fayupable/logged-lib/compare/v1.2.0...v1.2.2
 [1.2.0]: https://github.com/fayupable/logged-lib/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/fayupable/logged-lib/compare/v1.0.0...v1.1.0

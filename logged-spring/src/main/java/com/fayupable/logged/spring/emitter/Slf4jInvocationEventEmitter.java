@@ -26,6 +26,13 @@ import org.slf4j.LoggerFactory;
  * that is, when the thrown exception actually wraps a different underlying
  * cause. When the two are equal, showing the root cause a second time would
  * add nothing, so it is omitted to keep the common case concise.
+ *
+ * <p>{@link MethodInvocationEvent#callerIp()} is only appended when present,
+ * that is, only for the security-sensitive methods explicitly annotated
+ * with {@code @Logged(includeIp = true)}. It is deliberately shown alongside
+ * {@link MethodInvocationEvent#callerIdentity()} rather than only in its
+ * place, since the two answer different questions ("who" versus "from
+ * where") that both matter for the operations this attribute is meant for.
  */
 public class Slf4jInvocationEventEmitter implements InvocationEventEmitter {
 
@@ -34,19 +41,20 @@ public class Slf4jInvocationEventEmitter implements InvocationEventEmitter {
     @Override
     public void emit(MethodInvocationEvent event) {
         long durationMs = event.durationNanos() / 1_000_000;
+        String ipSuffix = event.callerIp() != null ? " ip=" + event.callerIp() : "";
         String chainSuffix = event.depth() > 0
                 ? " (trace=" + event.traceId() + ", depth=" + event.depth() + ")"
                 : "";
 
         if (event.success()) {
-            log.info("[{}] {}.{} completed in {}ms{}",
-                    event.callerIdentity(), event.className(), event.methodName(), durationMs, chainSuffix);
+            log.info("[{}]{} {}.{} completed in {}ms{}",
+                    event.callerIdentity(), ipSuffix, event.className(), event.methodName(), durationMs, chainSuffix);
         } else {
             boolean rootCauseDiffers = event.rootCauseType() != null && !event.rootCauseType().equals(event.exceptionType());
             String causeSuffix = rootCauseDiffers ? " (caused by " + event.rootCauseType() + ")" : "";
 
-            log.warn("[{}] {}.{} failed after {}ms - {}{}{}",
-                    event.callerIdentity(), event.className(), event.methodName(), durationMs,
+            log.warn("[{}]{} {}.{} failed after {}ms - {}{}{}",
+                    event.callerIdentity(), ipSuffix, event.className(), event.methodName(), durationMs,
                     event.exceptionType(), causeSuffix, chainSuffix);
         }
     }

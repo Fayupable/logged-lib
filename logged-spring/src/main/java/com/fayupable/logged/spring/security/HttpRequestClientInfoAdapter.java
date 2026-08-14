@@ -36,4 +36,9 @@ public class HttpRequestClientInfoAdapter implements IClientInfoPort {
         String clientIp = RequestClientIpResolver.resolveClientIp(trustForwardedHeaders);
         return clientIp != null ? clientIp : UNKNOWN_CALLER;
     }
+
+    @Override
+    public String resolveCallerIp() {
+        return RequestClientIpResolver.resolveIp(trustForwardedHeaders);
+    }
 }

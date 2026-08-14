@@ -17,6 +17,7 @@ public final class InMemoryClientInfoPort implements IClientInfoPort {
     private static final String DEFAULT_CALLER_IDENTITY = "unknown";
 
     private volatile String callerIdentity;
+    private volatile String callerIp;
 
     /**
      * Creates an instance that reports the caller identity as
@@ -48,5 +49,23 @@ public final class InMemoryClientInfoPort implements IClientInfoPort {
      */
     public void setCallerIdentity(String callerIdentity) {
         this.callerIdentity = callerIdentity;
+    }
+
+    @Override
+    public String resolveCallerIp() {
+        return callerIp;
+    }
+
+    /**
+     * Changes the IP address reported by subsequent calls to
+     * {@link #resolveCallerIp()}, for testing a {@code @Logged(includeIp = true)}
+     * method's {@link com.fayupable.logged.core.model.MethodInvocationEvent#callerIp()}
+     * without wiring a real HTTP request. Defaults to {@code null}
+     * (not resolved) until this is called.
+     *
+     * @param callerIp the IP address to report from now on
+     */
+    public void setCallerIp(String callerIp) {
+        this.callerIp = callerIp;
     }
 }

@@ -43,14 +43,14 @@ class JsonInvocationEventEmitterTest {
     private MethodInvocationEvent successEvent() {
         return new MethodInvocationEvent(
                 "UserService", "getUser", Instant.parse("2026-01-01T00:00:00Z"), 12_000_000L, true, null, null,
-                CALLER_IDENTITY, "abc123", 2
+                CALLER_IDENTITY, null, "abc123", 2
         );
     }
 
     private MethodInvocationEvent failureEvent(String exceptionType, String rootCauseType) {
         return new MethodInvocationEvent(
                 "UserService", "getUser", Instant.parse("2026-01-01T00:00:00Z"), 5_000_000L, false, exceptionType,
-                rootCauseType, CALLER_IDENTITY, "abc123", 0
+                rootCauseType, CALLER_IDENTITY, null, "abc123", 0
         );
     }
 
@@ -90,6 +90,7 @@ class JsonInvocationEventEmitterTest {
                     .contains("\"exceptionType\":null")
                     .contains("\"rootCauseType\":null")
                     .contains("\"callerIdentity\":\"user:42\"")
+                    .contains("\"callerIp\":null")
                     .contains("\"traceId\":\"abc123\"")
                     .contains("\"depth\":2");
         }
@@ -129,7 +130,7 @@ class JsonInvocationEventEmitterTest {
         void escapesSpecialCharacters() {
             MethodInvocationEvent event = new MethodInvocationEvent(
                     "Weird\"Class\\Name", "method\nWithNewline", Instant.parse("2026-01-01T00:00:00Z"),
-                    1_000_000L, true, null, null, CALLER_IDENTITY, "abc123", 0
+                    1_000_000L, true, null, null, CALLER_IDENTITY, null, "abc123", 0
             );
 
             emitter.emit(event);
@@ -147,7 +148,7 @@ class JsonInvocationEventEmitterTest {
             String methodNameWithControlChar = "method" + '' + "WithControlChar";
             MethodInvocationEvent event = new MethodInvocationEvent(
                     "UserService", methodNameWithControlChar, Instant.parse("2026-01-01T00:00:00Z"),
-                    1_000_000L, true, null, null, CALLER_IDENTITY, "abc123", 0
+                    1_000_000L, true, null, null, CALLER_IDENTITY, null, "abc123", 0
             );
 
             emitter.emit(event);
@@ -162,7 +163,7 @@ class JsonInvocationEventEmitterTest {
         void doesNotEscapeSpace() {
             MethodInvocationEvent event = new MethodInvocationEvent(
                     "UserService", "method with space", Instant.parse("2026-01-01T00:00:00Z"),
-                    1_000_000L, true, null, null, CALLER_IDENTITY, "abc123", 0
+                    1_000_000L, true, null, null, CALLER_IDENTITY, null, "abc123", 0
             );
 
             emitter.emit(event);
@@ -179,7 +180,7 @@ class JsonInvocationEventEmitterTest {
         void producesSingleLogLine() {
             MethodInvocationEvent event = new MethodInvocationEvent(
                     "UserService", "method\nWithNewline", Instant.parse("2026-01-01T00:00:00Z"),
-                    1_000_000L, true, null, null, CALLER_IDENTITY, "abc123", 0
+                    1_000_000L, true, null, null, CALLER_IDENTITY, null, "abc123", 0
             );
 
             emitter.emit(event);
@@ -187,6 +188,26 @@ class JsonInvocationEventEmitterTest {
             String message = printedMessage();
 
             assertThat(message).doesNotContain("\n");
+        }
+    }
+
+    @Nested
+    @DisplayName("callerIp")
+    class CallerIp {
+
+        @Test
+        @DisplayName("writes the IP as its own field when present")
+        void writesIpWhenPresent() {
+            MethodInvocationEvent event = new MethodInvocationEvent(
+                    "UserService", "getUser", Instant.parse("2026-01-01T00:00:00Z"), 12_000_000L, true, null, null,
+                    CALLER_IDENTITY, "203.0.113.5", "abc123", 0
+            );
+
+            emitter.emit(event);
+
+            String message = printedMessage();
+
+            assertThat(message).contains("\"callerIp\":\"203.0.113.5\"");
         }
     }
 }

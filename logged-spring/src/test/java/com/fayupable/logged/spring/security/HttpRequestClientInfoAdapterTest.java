@@ -64,4 +64,27 @@ class HttpRequestClientInfoAdapterTest {
             assertThat(adapter.resolveCallerIdentity()).isEqualTo("ip:198.51.100.99");
         }
     }
+
+    @Nested
+    @DisplayName("resolveCallerIp")
+    class ResolveCallerIp {
+
+        @Test
+        @DisplayName("resolves the raw IP address, unprefixed")
+        void resolvesRawIp() {
+            withRequestFrom("203.0.113.5");
+
+            HttpRequestClientInfoAdapter adapter = new HttpRequestClientInfoAdapter(false);
+
+            assertThat(adapter.resolveCallerIp()).isEqualTo("203.0.113.5");
+        }
+
+        @Test
+        @DisplayName("resolves to null when there is no active HTTP request")
+        void resolvesNullWithoutRequest() {
+            HttpRequestClientInfoAdapter adapter = new HttpRequestClientInfoAdapter(false);
+
+            assertThat(adapter.resolveCallerIp()).isNull();
+        }
+    }
 }
