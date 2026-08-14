@@ -68,4 +68,31 @@ public @interface Logged {
      * @return the sampling rate, defaulting to 1.0 (log every call)
      */
     double sampleRate() default 1.0;
+
+    /**
+     * Whether the caller's IP address should be resolved and recorded
+     * alongside whatever else the caller-identity resolver produces,
+     * instead of only as a fallback used when no identity is available.
+     *
+     * <p>By default, an interceptor's caller-identity resolution is an
+     * either/or chain: an authenticated principal, if one resolves, takes
+     * priority over the caller's IP, which is then discarded. For most
+     * {@code @Logged} methods that is the right tradeoff — knowing who
+     * called is more useful than knowing where from, and recording both
+     * unconditionally would add IP address (personal data under most
+     * privacy frameworks) to every log line for no benefit.
+     *
+     * <p>For a small set of security-sensitive operations — login, password
+     * reset, TOTP verification, admin mutations — the IP remains valuable
+     * for audit and rate-limiting purposes even when the call also resolves
+     * to an authenticated identity, and especially on a failed attempt,
+     * where the caller's identity may be unverified or entirely absent.
+     * Setting this to {@code true} on exactly those methods records the IP
+     * unconditionally, without changing IP resolution for every other
+     * {@code @Logged} method in the application.
+     *
+     * @return whether to record the caller's IP address in addition to
+     *         caller identity, defaulting to {@code false}
+     */
+    boolean includeIp() default false;
 }

@@ -41,6 +41,13 @@ import java.time.Instant;
  *                         call (for example an authenticated user id or a
  *                         client IP address), resolved by an adapter-specific
  *                         implementation
+ * @param callerIp         the caller's IP address, resolved independently of
+ *                         {@code callerIdentity} rather than only as its
+ *                         fallback tier, or {@code null} if not resolved.
+ *                         Only populated when {@link com.fayupable.logged.core.annotation.Logged#includeIp()}
+ *                         is {@code true} for the invoked method, or when
+ *                         the caller-identity resolver in use does not
+ *                         support resolving it at all
  * @param traceId          the {@link FlowContext#traceId()} shared by every
  *                         call in the same chain of nested {@code @Logged}
  *                         invocations, allowing log output to be
@@ -58,6 +65,7 @@ public record MethodInvocationEvent(
         String exceptionType,
         String rootCauseType,
         String callerIdentity,
+        String callerIp,
         String traceId,
         int depth
 ) {

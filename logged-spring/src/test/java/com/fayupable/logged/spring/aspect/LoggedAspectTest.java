@@ -49,8 +49,12 @@ class LoggedAspectTest {
     }
 
     private <T> T proxy(T target) {
+        return proxyWith(aspect, target);
+    }
+
+    private <T> T proxyWith(LoggedAspect aspectInstance, T target) {
         AspectJProxyFactory factory = new AspectJProxyFactory(target);
-        factory.addAspect(aspect);
+        factory.addAspect(aspectInstance);
         return factory.getProxy();
     }
 
@@ -565,6 +569,68 @@ class LoggedAspectTest {
     }
 
     @Nested
+    @DisplayName("Logged#includeIp")
+    class IncludeIp {
+
+        private static final String CALLER_IP = "203.0.113.5";
+
+        @Test
+        @DisplayName("populates callerIp on a successful call when includeIp = true")
+        void populatesCallerIpOnSuccessWhenEnabled() {
+            CountingClientInfoPort clientInfoPort = new CountingClientInfoPort(CALLER_IDENTITY, CALLER_IP);
+            LoggedAspect ipAwareAspect = new LoggedAspect(eventEmitter, metricsRecorder, clientInfoPort);
+            SecuritySensitiveService service = proxyWith(ipAwareAspect, new SecuritySensitiveServiceImpl());
+
+            service.login("enis");
+
+            assertThat(eventEmitter.events.get(0).callerIp()).isEqualTo(CALLER_IP);
+            assertThat(clientInfoPort.resolveCallerIpInvocations).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("leaves callerIp null when includeIp = false (the default), without calling resolveCallerIp")
+        void leavesCallerIpNullWhenDisabled() {
+            CountingClientInfoPort clientInfoPort = new CountingClientInfoPort(CALLER_IDENTITY, CALLER_IP);
+            LoggedAspect ipAwareAspect = new LoggedAspect(eventEmitter, metricsRecorder, clientInfoPort);
+            SecuritySensitiveService service = proxyWith(ipAwareAspect, new SecuritySensitiveServiceImpl());
+
+            service.readData();
+
+            assertThat(eventEmitter.events.get(0).callerIp()).isNull();
+            assertThat(clientInfoPort.resolveCallerIpInvocations).isZero();
+        }
+
+        @Test
+        @DisplayName("populates callerIp on a failed call when includeIp = true")
+        void populatesCallerIpOnFailureWhenEnabled() {
+            CountingClientInfoPort clientInfoPort = new CountingClientInfoPort(CALLER_IDENTITY, CALLER_IP);
+            LoggedAspect ipAwareAspect = new LoggedAspect(eventEmitter, metricsRecorder, clientInfoPort);
+            SecuritySensitiveService service = proxyWith(ipAwareAspect, new SecuritySensitiveServiceImpl());
+
+            assertThatThrownBy(() -> service.login("invalid")).isInstanceOf(IllegalArgumentException.class);
+
+            assertThat(eventEmitter.events.get(0).success()).isFalse();
+            assertThat(eventEmitter.events.get(0).callerIp()).isEqualTo(CALLER_IP);
+        }
+
+        @Test
+        @DisplayName("populates callerIp once a CompletableFuture-returning call actually completes")
+        void populatesCallerIpAfterFutureCompletion() {
+            CountingClientInfoPort clientInfoPort = new CountingClientInfoPort(CALLER_IDENTITY, CALLER_IP);
+            LoggedAspect ipAwareAspect = new LoggedAspect(eventEmitter, metricsRecorder, clientInfoPort);
+            SecuritySensitiveService service = proxyWith(ipAwareAspect, new SecuritySensitiveServiceImpl());
+            CompletableFuture<String> manuallyCompleted = new CompletableFuture<>();
+
+            service.loginAsync(manuallyCompleted);
+            assertThat(eventEmitter.events).isEmpty();
+
+            manuallyCompleted.complete("ok");
+
+            assertThat(eventEmitter.events.get(0).callerIp()).isEqualTo(CALLER_IP);
+        }
+    }
+
+    @Nested
     @DisplayName("robustness against misbehaving observability collaborators")
     class Robustness {
 
@@ -708,6 +774,59 @@ class LoggedAspectTest {
             } catch (ArithmeticException cause) {
                 throw new IllegalStateException("calculation failed", cause);
             }
+        }
+    }
+
+    interface SecuritySensitiveService {
+        String login(String username);
+
+        String readData();
+
+        CompletableFuture<String> loginAsync(CompletableFuture<String> future);
+    }
+
+    static class SecuritySensitiveServiceImpl implements SecuritySensitiveService {
+        @Logged(includeIp = true)
+        @Override
+        public String login(String username) {
+            if ("invalid".equals(username)) {
+                throw new IllegalArgumentException("bad credentials");
+            }
+            return "ok:" + username;
+        }
+
+        @Logged
+        @Override
+        public String readData() {
+            return "data";
+        }
+
+        @Logged(includeIp = true)
+        @Override
+        public CompletableFuture<String> loginAsync(CompletableFuture<String> future) {
+            return future;
+        }
+    }
+
+    static class CountingClientInfoPort implements IClientInfoPort {
+        private final String identity;
+        private final String ip;
+        int resolveCallerIpInvocations;
+
+        CountingClientInfoPort(String identity, String ip) {
+            this.identity = identity;
+            this.ip = ip;
+        }
+
+        @Override
+        public String resolveCallerIdentity() {
+            return identity;
+        }
+
+        @Override
+        public String resolveCallerIp() {
+            resolveCallerIpInvocations++;
+            return ip;
         }
     }
 
@@ -892,7 +1011,7 @@ class LoggedAspectTest {
         @Override
         public void record(String className, String methodName, long durationNanos, boolean success, String exceptionType) {
             MethodInvocationEvent recorded = new MethodInvocationEvent(
-                    className, methodName, java.time.Instant.now(), durationNanos, success, exceptionType, exceptionType, "n/a", "n/a", -1
+                    className, methodName, java.time.Instant.now(), durationNanos, success, exceptionType, exceptionType, "n/a", null, "n/a", -1
             );
             recordings.add(recorded);
             System.out.println("METRIC -> " + recorded);

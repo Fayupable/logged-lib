@@ -15,7 +15,7 @@ class InMemoryInvocationEventEmitterTest {
 
     private static MethodInvocationEvent event(String methodName) {
         return new MethodInvocationEvent(
-                "SomeClass", methodName, Instant.now(), 1_000_000L, true, null, null, "unknown", "trace-1", 0
+                "SomeClass", methodName, Instant.now(), 1_000_000L, true, null, null, "unknown", null, "trace-1", 0
         );
     }
 

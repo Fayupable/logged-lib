@@ -29,4 +29,35 @@ public interface IClientInfoPort {
      *         resolved
      */
     String resolveCallerIdentity();
+
+    /**
+     * Resolves the IP address of the caller that triggered the current
+     * invocation, independent of whatever {@link #resolveCallerIdentity()}
+     * itself resolves to.
+     *
+     * <p>Unlike {@link #resolveCallerIdentity()}, which resolves a single
+     * identity from an either/or chain of tiers (authenticated principal,
+     * then IP, then a placeholder), this method exists so that a caller's IP
+     * can be recorded alongside an authenticated identity rather than only
+     * as a fallback used when no identity is available — valuable for
+     * security-sensitive operations (login, password reset, admin actions)
+     * where the IP remains useful for audit and rate-limiting purposes even
+     * when the call also resolves to an authenticated user.
+     *
+     * <p>This is a default method, not an abstract one, so that adding it
+     * does not break existing implementations of this interface compiled
+     * against an earlier version of this library. The default returns
+     * {@code null}, meaning "this adapter does not support resolving an IP
+     * independent of caller identity" — consistent with this library's
+     * convention of using {@code null} for "not available" on structured
+     * fields, rather than a placeholder string.
+     *
+     * @return the caller's IP address, or {@code null} if it cannot be
+     *         resolved (for example, no HTTP request is available on the
+     *         current thread, or this adapter does not implement IP
+     *         resolution)
+     */
+    default String resolveCallerIp() {
+        return null;
+    }
 }

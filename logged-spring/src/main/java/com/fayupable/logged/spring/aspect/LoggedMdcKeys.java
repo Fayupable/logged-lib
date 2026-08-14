@@ -48,6 +48,14 @@ public final class LoggedMdcKeys {
      */
     public static final String METHOD_NAME = "logged.methodName";
 
+    /**
+     * The caller's IP address, the same value reported as
+     * {@link com.fayupable.logged.core.model.MethodInvocationEvent#callerIp()}.
+     * Only written while executing a method annotated with
+     * {@code @Logged(includeIp = true)}; absent for every other invocation.
+     */
+    public static final String CALLER_IP = "logged.callerIp";
+
     private LoggedMdcKeys() {
     }
 }

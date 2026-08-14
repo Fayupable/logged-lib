@@ -49,4 +49,32 @@ class InMemoryClientInfoPortTest {
             assertThat(clientInfoPort.resolveCallerIdentity()).isEqualTo("user:99");
         }
     }
+
+    @Nested
+    @DisplayName("resolveCallerIp")
+    class ResolveCallerIp {
+
+        @Test
+        @DisplayName("reports null until setCallerIp is called")
+        void reportsNullByDefault() {
+            InMemoryClientInfoPort clientInfoPort = new InMemoryClientInfoPort();
+
+            assertThat(clientInfoPort.resolveCallerIp()).isNull();
+        }
+    }
+
+    @Nested
+    @DisplayName("setCallerIp")
+    class SetCallerIp {
+
+        @Test
+        @DisplayName("changes the IP reported by subsequent calls")
+        void changesReportedIp() {
+            InMemoryClientInfoPort clientInfoPort = new InMemoryClientInfoPort();
+
+            clientInfoPort.setCallerIp("203.0.113.5");
+
+            assertThat(clientInfoPort.resolveCallerIp()).isEqualTo("203.0.113.5");
+        }
+    }
 }

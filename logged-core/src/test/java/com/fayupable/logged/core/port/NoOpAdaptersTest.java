@@ -17,7 +17,7 @@ class NoOpAdaptersTest {
     void noOpInvocationEventEmitterDoesNotThrow() {
         InvocationEventEmitter emitter = new NoOpInvocationEventEmitter();
         MethodInvocationEvent event = new MethodInvocationEvent(
-                "SomeClass", "someMethod", Instant.now(), 1_000_000L, true, null, null, "unknown", "trace-1", 0
+                "SomeClass", "someMethod", Instant.now(), 1_000_000L, true, null, null, "unknown", null, "trace-1", 0
         );
 
         assertThatCode(() -> emitter.emit(event)).doesNotThrowAnyException();
@@ -38,5 +38,21 @@ class NoOpAdaptersTest {
         IClientInfoPort clientInfoPort = new NoOpClientInfoPort();
 
         assertThat(clientInfoPort.resolveCallerIdentity()).isEqualTo("unknown");
+    }
+
+    @Test
+    @DisplayName("NoOpClientInfoPort inherits the default resolveCallerIp, reporting null")
+    void noOpClientInfoPortReportsNullIp() {
+        IClientInfoPort clientInfoPort = new NoOpClientInfoPort();
+
+        assertThat(clientInfoPort.resolveCallerIp()).isNull();
+    }
+
+    @Test
+    @DisplayName("IClientInfoPort's default resolveCallerIp returns null for any implementation that does not override it")
+    void interfaceDefaultResolveCallerIpReturnsNull() {
+        IClientInfoPort minimalImplementation = () -> "user:42";
+
+        assertThat(minimalImplementation.resolveCallerIp()).isNull();
     }
 }

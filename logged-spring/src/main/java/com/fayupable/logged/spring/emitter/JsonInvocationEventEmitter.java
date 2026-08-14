@@ -68,6 +68,8 @@ public class JsonInvocationEventEmitter implements InvocationEventEmitter {
         json.append(',');
         appendString(json, "callerIdentity", event.callerIdentity());
         json.append(',');
+        appendString(json, "callerIp", event.callerIp());
+        json.append(',');
         appendString(json, "traceId", event.traceId());
         json.append(',');
         appendNumber(json, "depth", event.depth());
