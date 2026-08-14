@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-08-14
+
+### Fixed
+
+- Removed a stray `@Component` annotation from `LoggedAspect`, which caused a `BeanCreationException: No default constructor found` startup failure in any consuming application whose own component-scanning happens to cover `com.fayupable.logged.spring.aspect` (for example an application with `com.fayupable` as its own base package). `LoggedAspect` was already correctly constructed and registered exclusively by `LoggedAutoConfiguration`'s `@Bean` method, guarded by `@ConditionalOnMissingBean(LoggedAspect.class)`; the stray `@Component` let component-scanning register an earlier, under-specified bean definition for the same type first, causing that guard to back off and Spring to fail resolving which of `LoggedAspect`'s two constructors to use.
+
 ## [1.2.0] - 2026-08-04
 
 ### Added
@@ -55,7 +61,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `logged-benchmarks`: internal JMH benchmarks measuring the aspect's overhead against a direct, uninstrumented call.
 - Quality gates: Pitest mutation testing (`logged-core` 100%, `logged-spring` 98%) and Checkstyle (0 violations), both enforced via `mvn verify`.
 
-[Unreleased]: https://github.com/fayupable/logged-lib/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/fayupable/logged-lib/compare/v1.2.2...HEAD
+[1.2.2]: https://github.com/fayupable/logged-lib/compare/v1.2.0...v1.2.2
 [1.2.0]: https://github.com/fayupable/logged-lib/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/fayupable/logged-lib/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/fayupable/logged-lib/releases/tag/v1.0.0
