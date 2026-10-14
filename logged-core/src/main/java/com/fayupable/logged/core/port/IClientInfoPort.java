@@ -1,5 +1,7 @@
 package com.fayupable.logged.core.port;
 
+import com.fayupable.logged.core.annotation.CallerMode;
+
 /**
  * Output port responsible for resolving who triggered the current method
  * invocation.
@@ -29,6 +31,24 @@ public interface IClientInfoPort {
      *         resolved
      */
     String resolveCallerIdentity();
+
+    /**
+     * Resolves the caller identity for an invocation whose {@code @Logged}
+     * annotation requests a specific {@link CallerMode}.
+     *
+     * <p>This is a default method so that existing implementations remain
+     * source-compatible; the default ignores {@code mode} and delegates to
+     * {@link #resolveCallerIdentity()}. Implementations that support caller
+     * modes override it, treating {@link CallerMode#DEFAULT} as "use the
+     * configured application-wide mode".
+     *
+     * @param mode the caller mode requested by the invoked method, never
+     *             {@code null}
+     * @return a caller identity, as described on {@link #resolveCallerIdentity()}
+     */
+    default String resolveCallerIdentity(CallerMode mode) {
+        return resolveCallerIdentity();
+    }
 
     /**
      * Resolves the IP address of the caller that triggered the current

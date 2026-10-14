@@ -1,5 +1,6 @@
 package com.fayupable.logged.spring.aspect;
 
+import com.fayupable.logged.core.annotation.CallerMode;
 import com.fayupable.logged.core.annotation.Logged;
 import com.fayupable.logged.core.model.MethodInvocationEvent;
 import com.fayupable.logged.core.port.IClientInfoPort;
@@ -631,6 +632,48 @@ class LoggedAspectTest {
     }
 
     @Nested
+    @DisplayName("Logged#caller")
+    class CallerModeOverride {
+
+        @Test
+        @DisplayName("passes the method's caller mode to the client info port")
+        void passesMethodCallerMode() {
+            List<CallerMode> requested = new ArrayList<>();
+            IClientInfoPort modeAwarePort = new IClientInfoPort() {
+                @Override
+                public String resolveCallerIdentity() {
+                    return CALLER_IDENTITY;
+                }
+
+                @Override
+                public String resolveCallerIdentity(CallerMode mode) {
+                    requested.add(mode);
+                    return "user:" + mode.name();
+                }
+            };
+            LoggedAspect modeAwareAspect = new LoggedAspect(eventEmitter, metricsRecorder, modeAwarePort);
+            SecuritySensitiveService service = proxyWith(modeAwareAspect, new SecuritySensitiveServiceImpl());
+
+            service.readData();
+            service.audit();
+
+            assertThat(requested).containsExactly(CallerMode.DEFAULT, CallerMode.NAME);
+            assertThat(eventEmitter.events).extracting(MethodInvocationEvent::callerIdentity)
+                    .containsExactly("user:DEFAULT", "user:NAME");
+        }
+
+        @Test
+        @DisplayName("keeps working with a port that only implements resolveCallerIdentity()")
+        void worksWithLegacyPort() {
+            SecuritySensitiveService service = proxy(new SecuritySensitiveServiceImpl());
+
+            service.audit();
+
+            assertThat(eventEmitter.events.get(0).callerIdentity()).isEqualTo(CALLER_IDENTITY);
+        }
+    }
+
+    @Nested
     @DisplayName("robustness against misbehaving observability collaborators")
     class Robustness {
 
@@ -783,6 +826,8 @@ class LoggedAspectTest {
         String readData();
 
         CompletableFuture<String> loginAsync(CompletableFuture<String> future);
+
+        String audit();
     }
 
     static class SecuritySensitiveServiceImpl implements SecuritySensitiveService {
@@ -805,6 +850,12 @@ class LoggedAspectTest {
         @Override
         public CompletableFuture<String> loginAsync(CompletableFuture<String> future) {
             return future;
+        }
+
+        @Logged(caller = CallerMode.NAME)
+        @Override
+        public String audit() {
+            return "audited";
         }
     }
 

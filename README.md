@@ -486,6 +486,7 @@ Every property below is optional and defaults to preserving the library's out-of
 | `logged.enabled` | `true` | Global switch. Setting this to `false` removes the aspect entirely; `@Logged` methods run uninstrumented. |
 | `logged.metrics.enabled` | `true` | Setting this to `false` falls back to a no-op metrics recorder even when a `MeterRegistry` bean is present. |
 | `logged.client-info.trust-forwarded-headers` | `false` | Whether the caller-IP resolver may trust the client-controlled `X-Forwarded-For` header. Only enable this after confirming the application sits behind a proxy that strips and re-sets this header itself — see [Caller resolution](#caller-resolution). |
+| `logged.client-info.caller` | `name` | How an authenticated caller's name is written: `name` (as is), `masked` (e-mail addresses become `j***@example.com`), or `custom` (a `CallerIdentityResolver` bean decides). A single method can override it with `@Logged(caller = ...)` — see [Masking the caller's e-mail (GDPR / KVKK)](#masking-the-callers-e-mail-gdpr--kvkk). |
 | `logged.mdc.enabled` | `true` | Whether `logged.traceId`/`logged.depth`/`logged.className`/`logged.methodName` are written to the current thread's MDC during a `@Logged` call — see [Structured logging (MDC)](#structured-logging-mdc). |
 
 ```yaml
@@ -550,6 +551,44 @@ public LoginResponse login(String username, String password) {
 Setting `includeIp = true` records the caller's IP unconditionally, in `MethodInvocationEvent#callerIp()` and, if MDC is enabled, under `LoggedMdcKeys.CALLER_IP` (`logged.callerIp`) — as a field alongside `callerIdentity`, not in place of it, and independent of whatever the identity tier resolves to. This is per-annotation, matching `slowThresholdMs`/`sampleRate`, rather than a global flag: IP is personal data under most privacy frameworks, so it is only recorded on the methods that explicitly opt in, not on every `@Logged` call across the application.
 
 `callerIp` is resolved synchronously on the calling thread, at the same point `callerIdentity` is — including for a method returning `CompletableFuture`, where it is captured before the async work begins, for the same reason described in [Async, `@Async`, and virtual thread support](#async-async-and-virtual-thread-support). It is `null` whenever it cannot be resolved (no active HTTP request, or a custom `IClientInfoPort` that does not implement `resolveCallerIp()`), never a placeholder string like `"unknown"` — consistent with `exceptionType`/`rootCauseType`, this library's other nullable structured fields.
+
+### Masking the caller's e-mail (GDPR / KVKK)
+
+When usernames are e-mail addresses, the default `user:<name>` identity puts personal data into every `@Logged` line. `logged.client-info.caller` controls how the authenticated name is written:
+
+| Mode | `jane.doe@example.com` | `42` |
+|---|---|---|
+| `name` (default) | `user:jane.doe@example.com` | `user:42` |
+| `masked` | `user:j***@example.com` | `user:42` |
+| `custom` | whatever your `CallerIdentityResolver` returns, e.g. `user:42` | same |
+
+`masked` only changes values that look like an e-mail address (exactly one `@` with something on both sides), so it is safe to enable in an application that already uses numeric ids. The IP fallback for unauthenticated callers and the `unknown` placeholder are never affected.
+
+```yaml
+logged:
+  client-info:
+    caller: masked
+```
+
+For `custom`, define a resolver bean; the returned value is prefixed with `user:`, and returning `null` or a blank string falls back to the caller's IP. `custom` without a resolver bean fails startup instead of silently logging the full name.
+
+```java
+@Bean
+CallerIdentityResolver callerIdentityResolver() {
+    return authentication -> authentication.getPrincipal() instanceof AppUser user
+            ? String.valueOf(user.getId())
+            : null;
+}
+```
+
+A single method can override the global mode; the annotation always wins over the YAML setting, and the default `CallerMode.DEFAULT` inherits it:
+
+```java
+@Logged(caller = CallerMode.NAME)   // full name here, masked everywhere else
+public void approveRefund(Long refundId) { ... }
+```
+
+For compliance, prefer setting the safe mode globally (`masked` or `custom`) and opting out per method with `CallerMode.NAME`, rather than masking per method: a `@Logged` method that forgets the attribute then stays masked instead of leaking. If a method requests `CallerMode.CUSTOM` while no resolver bean exists, its name is masked rather than written in full. Caller modes apply to the built-in Spring Security adapter; a custom `IClientInfoPort` bean can support them by overriding `resolveCallerIdentity(CallerMode)`.
 
 ## Benchmarks
 

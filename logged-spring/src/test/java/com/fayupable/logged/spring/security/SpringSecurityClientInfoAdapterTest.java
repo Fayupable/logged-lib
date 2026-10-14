@@ -1,9 +1,13 @@
 package com.fayupable.logged.spring.security;
 
+import com.fayupable.logged.core.annotation.CallerMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -195,6 +199,121 @@ class SpringSecurityClientInfoAdapterTest {
         @DisplayName("resolves to null when there is no active HTTP request")
         void resolvesNullWithoutRequest() {
             assertThat(adapter.resolveCallerIp()).isNull();
+        }
+    }
+
+    @Nested
+    @DisplayName("caller modes")
+    class CallerModes {
+
+        private static final String EMAIL = "jane.doe@example.com";
+        private static final CallerIdentityResolver ID_RESOLVER = authentication -> "42";
+
+        private SpringSecurityClientInfoAdapter adapterWith(CallerMode configured, CallerIdentityResolver resolver) {
+            return new SpringSecurityClientInfoAdapter(false, configured, resolver);
+        }
+
+        @Test
+        @DisplayName("NAME (the default) writes an e-mail username in full")
+        void nameWritesEmailInFull() {
+            authenticateAs(EMAIL);
+
+            assertThat(adapter.resolveCallerIdentity()).isEqualTo("user:" + EMAIL);
+            assertThat(adapter.resolveCallerIdentity(CallerMode.DEFAULT)).isEqualTo("user:" + EMAIL);
+        }
+
+        @Test
+        @DisplayName("a null or DEFAULT configured mode behaves as NAME")
+        void nullOrDefaultConfiguredModeBehavesAsName() {
+            authenticateAs(EMAIL);
+
+            assertThat(adapterWith(null, null).resolveCallerIdentity()).isEqualTo("user:" + EMAIL);
+            assertThat(adapterWith(CallerMode.DEFAULT, null).resolveCallerIdentity()).isEqualTo("user:" + EMAIL);
+        }
+
+        @Test
+        @DisplayName("configured MASKED masks an e-mail username")
+        void maskedMasksEmail() {
+            authenticateAs(EMAIL);
+
+            assertThat(adapterWith(CallerMode.MASKED, null).resolveCallerIdentity()).isEqualTo("user:j***@example.com");
+        }
+
+        @Test
+        @DisplayName("configured MASKED leaves a username that is not an e-mail unchanged")
+        void maskedLeavesNonEmailUnchanged() {
+            authenticateAs("42");
+
+            assertThat(adapterWith(CallerMode.MASKED, null).resolveCallerIdentity()).isEqualTo("user:42");
+        }
+
+        @Test
+        @DisplayName("configured MASKED does not affect the IP fallback for anonymous callers")
+        void maskedKeepsIpFallbackForAnonymous() {
+            authenticateAsAnonymous();
+            withRequestFrom("198.51.100.7");
+
+            assertThat(adapterWith(CallerMode.MASKED, null).resolveCallerIdentity()).isEqualTo("ip:198.51.100.7");
+        }
+
+        @Test
+        @DisplayName("configured CUSTOM uses the resolver's value")
+        void customUsesResolver() {
+            authenticateAs(EMAIL);
+
+            assertThat(adapterWith(CallerMode.CUSTOM, ID_RESOLVER).resolveCallerIdentity()).isEqualTo("user:42");
+        }
+
+        @Test
+        @DisplayName("CUSTOM never calls the resolver for an anonymous caller")
+        void customSkipsResolverForAnonymous() {
+            authenticateAsAnonymous();
+            withRequestFrom("198.51.100.7");
+            CallerIdentityResolver failing = authentication -> {
+                throw new AssertionError("resolver must not be called");
+            };
+
+            assertThat(adapterWith(CallerMode.CUSTOM, failing).resolveCallerIdentity()).isEqualTo("ip:198.51.100.7");
+        }
+
+        @ParameterizedTest
+        @NullSource
+        @ValueSource(strings = {"", "  "})
+        @DisplayName("CUSTOM falls back to the IP when the resolver returns null or blank")
+        void customFallsBackToIpOnEmptyResolverResult(String resolved) {
+            authenticateAs(EMAIL);
+            withRequestFrom("203.0.113.5");
+
+            assertThat(adapterWith(CallerMode.CUSTOM, authentication -> resolved).resolveCallerIdentity())
+                    .isEqualTo("ip:203.0.113.5");
+        }
+
+        @Test
+        @DisplayName("CUSTOM without a resolver masks instead of writing the name in full")
+        void customWithoutResolverMasks() {
+            authenticateAs(EMAIL);
+
+            assertThat(adapter.resolveCallerIdentity(CallerMode.CUSTOM)).isEqualTo("user:j***@example.com");
+        }
+
+        @Test
+        @DisplayName("a method-level mode overrides the configured mode in both directions")
+        void methodModeOverridesConfiguredMode() {
+            authenticateAs(EMAIL);
+            SpringSecurityClientInfoAdapter masking = adapterWith(CallerMode.MASKED, ID_RESOLVER);
+
+            assertThat(masking.resolveCallerIdentity(CallerMode.DEFAULT)).isEqualTo("user:j***@example.com");
+            assertThat(masking.resolveCallerIdentity(CallerMode.NAME)).isEqualTo("user:" + EMAIL);
+            assertThat(masking.resolveCallerIdentity(CallerMode.CUSTOM)).isEqualTo("user:42");
+            assertThat(adapter.resolveCallerIdentity(CallerMode.MASKED)).isEqualTo("user:j***@example.com");
+        }
+
+        @Test
+        @DisplayName("a null method-level mode behaves as DEFAULT")
+        void nullMethodModeBehavesAsDefault() {
+            authenticateAs(EMAIL);
+
+            assertThat(adapterWith(CallerMode.MASKED, null).resolveCallerIdentity(null)).isEqualTo("user:j***@example.com");
         }
     }
 }

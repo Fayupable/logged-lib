@@ -1,5 +1,6 @@
 package com.fayupable.logged.spring.config;
 
+import com.fayupable.logged.core.annotation.CallerMode;
 import com.fayupable.logged.core.port.IClientInfoPort;
 import com.fayupable.logged.core.port.InvocationEventEmitter;
 import com.fayupable.logged.core.port.MetricsRecorder;
@@ -10,6 +11,7 @@ import com.fayupable.logged.spring.emitter.Slf4jInvocationEventEmitter;
 import com.fayupable.logged.spring.guard.LoggedTargetGuardBeanPostProcessor;
 import com.fayupable.logged.spring.metrics.LazyMetricsRecorder;
 import com.fayupable.logged.spring.metrics.MicrometerMetricsRecorder;
+import com.fayupable.logged.spring.security.CallerIdentityResolver;
 import com.fayupable.logged.spring.security.HttpRequestClientInfoAdapter;
 import com.fayupable.logged.spring.security.SpringSecurityClientInfoAdapter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -82,8 +84,15 @@ public class LoggedAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(IClientInfoPort.class)
     @ConditionalOnClass({Authentication.class, HttpServletRequest.class})
-    public IClientInfoPort springSecurityClientInfoAdapter(LoggedProperties properties) {
-        return new SpringSecurityClientInfoAdapter(properties.getClientInfo().isTrustForwardedHeaders());
+    public IClientInfoPort springSecurityClientInfoAdapter(LoggedProperties properties,
+                                                           ObjectProvider<CallerIdentityResolver> resolverProvider) {
+        LoggedProperties.ClientInfo clientInfo = properties.getClientInfo();
+        CallerIdentityResolver resolver = resolverProvider.getIfAvailable();
+        if (clientInfo.getCaller() == CallerMode.CUSTOM && resolver == null) {
+            throw new IllegalStateException("logged.client-info.caller=custom requires a "
+                    + CallerIdentityResolver.class.getName() + " bean, but none is defined");
+        }
+        return new SpringSecurityClientInfoAdapter(clientInfo.isTrustForwardedHeaders(), clientInfo.getCaller(), resolver);
     }
 
     @Bean

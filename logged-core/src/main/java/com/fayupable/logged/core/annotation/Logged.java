@@ -95,4 +95,22 @@ public @interface Logged {
      *         caller identity, defaulting to {@code false}
      */
     boolean includeIp() default false;
+
+    /**
+     * How an authenticated caller's identity is written for this method,
+     * overriding the application-wide setting.
+     *
+     * <p>The default, {@link CallerMode#DEFAULT}, inherits the global
+     * setting, so most methods never need to set this. It is intended for
+     * exceptions to that setting, for example a single audit method that
+     * needs the full name while the rest of the application masks it:
+     * <pre>{@code
+     * @Logged(caller = CallerMode.NAME)
+     * public void approveRefund(Long refundId) { ... }
+     * }</pre>
+     *
+     * @return the caller mode for this method, defaulting to
+     *         {@link CallerMode#DEFAULT}
+     */
+    CallerMode caller() default CallerMode.DEFAULT;
 }
