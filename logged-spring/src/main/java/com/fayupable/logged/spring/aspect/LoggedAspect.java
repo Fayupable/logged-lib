@@ -182,7 +182,7 @@ public class LoggedAspect {
         ResolvedNames names = resolveNames(pjp);
         String className = names.className();
         String methodName = names.methodName();
-        String callerIdentity = clientInfoPort.resolveCallerIdentity();
+        String callerIdentity = clientInfoPort.resolveCallerIdentity(logged.caller());
         String callerIp = logged.includeIp() ? clientInfoPort.resolveCallerIp() : null;
         long start = System.nanoTime();
 

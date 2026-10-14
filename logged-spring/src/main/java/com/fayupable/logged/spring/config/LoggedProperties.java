@@ -1,5 +1,6 @@
 package com.fayupable.logged.spring.config;
 
+import com.fayupable.logged.core.annotation.CallerMode;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -66,12 +67,35 @@ public class LoggedProperties {
          */
         private boolean trustForwardedHeaders = false;
 
+        /**
+         * How an authenticated caller's name is written into every
+         * {@code @Logged} event, unless a method overrides it through
+         * {@code @Logged(caller = ...)}.
+         *
+         * <p>Defaults to {@link CallerMode#NAME}, the historical behavior.
+         * Set it to {@code masked} when usernames are e-mail addresses, to
+         * keep personal data (GDPR / KVKK) out of logs, or to {@code custom}
+         * together with a
+         * {@link com.fayupable.logged.spring.security.CallerIdentityResolver}
+         * bean to log an internal user id instead. {@code custom} without
+         * such a bean fails application startup.
+         */
+        private CallerMode caller = CallerMode.NAME;
+
         public boolean isTrustForwardedHeaders() {
             return trustForwardedHeaders;
         }
 
         public void setTrustForwardedHeaders(boolean trustForwardedHeaders) {
             this.trustForwardedHeaders = trustForwardedHeaders;
+        }
+
+        public CallerMode getCaller() {
+            return caller;
+        }
+
+        public void setCaller(CallerMode caller) {
+            this.caller = caller;
         }
     }
 

@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-10-14
+
+### Added
+
+- Configurable caller identity for GDPR / KVKK compliance (#6): `logged.client-info.caller` (`name` — default, unchanged behavior — `masked`, or `custom`) controls how `SpringSecurityClientInfoAdapter` writes an authenticated principal's name. `masked` reduces e-mail-like names to `j***@example.com` and leaves other names (such as numeric ids) unchanged; `custom` delegates to a new `CallerIdentityResolver` bean and fails startup when none is defined. A single method can override the global mode with the new `@Logged(caller = CallerMode.…)` attribute. Adds `CallerMode` and `IClientInfoPort#resolveCallerIdentity(CallerMode)` (a `default` method delegating to `resolveCallerIdentity()`, so existing implementations remain source-compatible) to `logged-core`, and `EmailMasker` to `logged-spring`.
+
 ## [1.3.0] - 2026-08-14
 
 ### Added

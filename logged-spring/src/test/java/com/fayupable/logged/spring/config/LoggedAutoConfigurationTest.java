@@ -1,5 +1,6 @@
 package com.fayupable.logged.spring.config;
 
+import com.fayupable.logged.core.annotation.CallerMode;
 import com.fayupable.logged.core.port.IClientInfoPort;
 import com.fayupable.logged.core.port.InvocationEventEmitter;
 import com.fayupable.logged.core.port.MetricsRecorder;
@@ -8,10 +9,12 @@ import com.fayupable.logged.core.port.NoOpMetricsRecorder;
 import com.fayupable.logged.spring.aspect.LoggedAspect;
 import com.fayupable.logged.spring.emitter.Slf4jInvocationEventEmitter;
 import com.fayupable.logged.spring.metrics.LazyMetricsRecorder;
+import com.fayupable.logged.spring.security.CallerIdentityResolver;
 import com.fayupable.logged.spring.security.HttpRequestClientInfoAdapter;
 import com.fayupable.logged.spring.security.SpringSecurityClientInfoAdapter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import jakarta.servlet.http.HttpServletRequest;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -20,7 +23,12 @@ import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -194,6 +202,70 @@ class LoggedAutoConfigurationTest {
                         assertThat(context).hasSingleBean(MetricsRecorder.class);
                         assertThat(context.getBean(MetricsRecorder.class)).isInstanceOf(NoOpMetricsRecorder.class);
                     });
+        }
+    }
+
+    @Nested
+    @DisplayName("logged.client-info.caller")
+    class CallerProperty {
+
+        @Configuration(proxyBeanMethods = false)
+        static class ResolverConfiguration {
+            @Bean
+            CallerIdentityResolver callerIdentityResolver() {
+                return authentication -> "42";
+            }
+        }
+
+        @AfterEach
+        void tearDown() {
+            SecurityContextHolder.clearContext();
+        }
+
+        private String identityFor(IClientInfoPort port, String username) {
+            SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+                    username, "password", List.of(new SimpleGrantedAuthority("ROLE_USER"))));
+            return port.resolveCallerIdentity();
+        }
+
+        @Test
+        @DisplayName("defaults to NAME, writing the username in full")
+        void defaultsToName() {
+            contextRunner.run(context -> {
+                assertThat(context.getBean(LoggedProperties.class).getClientInfo().getCaller()).isEqualTo(CallerMode.NAME);
+                assertThat(identityFor(context.getBean(IClientInfoPort.class), "jane@example.com"))
+                        .isEqualTo("user:jane@example.com");
+            });
+        }
+
+        @Test
+        @DisplayName("binds masked and masks e-mail usernames")
+        void bindsMasked() {
+            contextRunner.withPropertyValues("logged.client-info.caller=masked").run(context ->
+                    assertThat(identityFor(context.getBean(IClientInfoPort.class), "jane@example.com"))
+                            .isEqualTo("user:j***@example.com"));
+        }
+
+        @Test
+        @DisplayName("binds custom and uses the CallerIdentityResolver bean")
+        void bindsCustomWithResolver() {
+            contextRunner
+                    .withUserConfiguration(ResolverConfiguration.class)
+                    .withPropertyValues("logged.client-info.caller=custom")
+                    .run(context -> assertThat(identityFor(context.getBean(IClientInfoPort.class), "jane@example.com"))
+                            .isEqualTo("user:42"));
+        }
+
+        @Test
+        @DisplayName("fails startup for custom without a CallerIdentityResolver bean")
+        void failsForCustomWithoutResolver() {
+            contextRunner.withPropertyValues("logged.client-info.caller=custom").run(context -> {
+                assertThat(context).hasFailed();
+                assertThat(context.getStartupFailure())
+                        .rootCause()
+                        .isInstanceOf(IllegalStateException.class)
+                        .hasMessageContaining("CallerIdentityResolver");
+            });
         }
     }
 }
