@@ -115,6 +115,7 @@ public class LoggedAspect {
     private final MetricsRecorder metricsRecorder;
     private final IClientInfoPort clientInfoPort;
     private final boolean mdcEnabled;
+    private final boolean deviceIncludedGlobally;
     private final ConcurrentHashMap<MethodKey, ResolvedNames> methodNameCache = new ConcurrentHashMap<>();
 
     /**
@@ -147,10 +148,34 @@ public class LoggedAspect {
      */
     public LoggedAspect(InvocationEventEmitter eventEmitter, MetricsRecorder metricsRecorder,
                          IClientInfoPort clientInfoPort, boolean mdcEnabled) {
+        this(eventEmitter, metricsRecorder, clientInfoPort, mdcEnabled, false);
+    }
+
+    /**
+     * Creates an aspect with explicit control over MDC propagation and
+     * application-wide device info.
+     *
+     * @param eventEmitter           collaborator that emits sampled/failed/slow
+     *                               invocations
+     * @param metricsRecorder        collaborator that records every invocation
+     *                               as a metric
+     * @param clientInfoPort         collaborator that resolves the caller's
+     *                               identity, IP address and device
+     * @param mdcEnabled             whether {@link LoggedMdcKeys} should be
+     *                               written to the current thread's MDC while
+     *                               a {@code @Logged} method runs
+     * @param deviceIncludedGlobally whether coarse device info is recorded for
+     *                               every {@code @Logged} method, in addition
+     *                               to those annotated with
+     *                               {@code includeDevice = true}
+     */
+    public LoggedAspect(InvocationEventEmitter eventEmitter, MetricsRecorder metricsRecorder,
+                         IClientInfoPort clientInfoPort, boolean mdcEnabled, boolean deviceIncludedGlobally) {
         this.eventEmitter = eventEmitter;
         this.metricsRecorder = metricsRecorder;
         this.clientInfoPort = clientInfoPort;
         this.mdcEnabled = mdcEnabled;
+        this.deviceIncludedGlobally = deviceIncludedGlobally;
     }
 
     /**
@@ -182,13 +207,12 @@ public class LoggedAspect {
         ResolvedNames names = resolveNames(pjp);
         String className = names.className();
         String methodName = names.methodName();
-        String callerIdentity = clientInfoPort.resolveCallerIdentity(logged.caller());
-        String callerIp = logged.includeIp() ? clientInfoPort.resolveCallerIp() : null;
+        CallerInfo caller = resolveCaller(logged);
         long start = System.nanoTime();
 
         FlowContextHolder.FlowScope flowScope = FlowContextHolder.enter();
         Runnable restoreMdc = mdcEnabled
-                ? MdcPropagation.push(flowScope.context(), className, methodName, callerIp)
+                ? MdcPropagation.push(flowScope.context(), className, methodName, caller.ip(), caller.device())
                 : NO_OP_MDC_RESTORE;
         try {
             Object result;
@@ -198,18 +222,18 @@ public class LoggedAspect {
                 String exceptionType = t.getClass().getSimpleName();
                 String rootCauseType = resolveRootCauseType(t);
                 long durationNanos = System.nanoTime() - start;
-                recordObservability(logged, className, methodName, callerIdentity, callerIp, durationNanos,
+                recordObservability(logged, className, methodName, caller, durationNanos,
                         false, exceptionType, rootCauseType, flowScope.context());
                 throw t;
             }
 
             if (result instanceof CompletableFuture<?> future) {
                 FlowContext capturedContext = flowScope.context();
-                return instrumentCompletableFuture(future, logged, className, methodName, callerIdentity, callerIp, start, capturedContext);
+                return instrumentCompletableFuture(future, logged, className, methodName, caller, start, capturedContext);
             }
 
             long durationNanos = System.nanoTime() - start;
-            recordObservability(logged, className, methodName, callerIdentity, callerIp, durationNanos,
+            recordObservability(logged, className, methodName, caller, durationNanos,
                     true, null, null, flowScope.context());
             return result;
         } finally {
@@ -244,13 +268,11 @@ public class LoggedAspect {
      *                        intercepted method
      * @param className       the class name resolved for this invocation
      * @param methodName      the method name resolved for this invocation
-     * @param callerIdentity  the caller identity resolved synchronously on
-     *                        the original calling thread
-     * @param callerIp        the caller's IP address resolved synchronously
-     *                        on the original calling thread, for the same
-     *                        reason as {@code callerIdentity} above; or
-     *                        {@code null} if {@link Logged#includeIp()} is
-     *                        {@code false} for this invocation
+     * @param caller          the caller identity, IP address and device,
+     *                        all resolved synchronously on the original
+     *                        calling thread, since the thread completing
+     *                        {@code future} no longer has the request or
+     *                        security context they come from
      * @param start           the {@link System#nanoTime()} reading taken
      *                        when this invocation began
      * @param capturedContext the call-chain position this invocation was
@@ -260,8 +282,8 @@ public class LoggedAspect {
      *         asynchronous result as if this aspect were not present
      */
     private CompletableFuture<?> instrumentCompletableFuture(CompletableFuture<?> future, Logged logged,
-                                                              String className, String methodName, String callerIdentity,
-                                                              String callerIp, long start, FlowContext capturedContext) {
+                                                              String className, String methodName, CallerInfo caller,
+                                                              long start, FlowContext capturedContext) {
         return future.whenComplete((value, throwable) -> {
             long durationNanos = System.nanoTime() - start;
             boolean success = throwable == null;
@@ -274,7 +296,7 @@ public class LoggedAspect {
                 rootCauseType = resolveRootCauseType(unwrapped);
             }
 
-            recordObservability(logged, className, methodName, callerIdentity, callerIp, durationNanos,
+            recordObservability(logged, className, methodName, caller, durationNanos,
                     success, exceptionType, rootCauseType, capturedContext);
         });
     }
@@ -347,16 +369,15 @@ public class LoggedAspect {
      * #metricsRecorder} and, if {@link EmissionPolicy} selects it, through
      * {@link #eventEmitter}.
      *
-     * <p>Takes an already-resolved {@code callerIdentity}, {@code callerIp},
-     * and {@link FlowContext} rather than resolving them itself, so this
+     * <p>Takes an already-resolved {@link CallerInfo} and {@link FlowContext} rather than resolving them itself, so this
      * method works identically whether it is called synchronously, right
      * after {@link ProceedingJoinPoint#proceed()} returns, or later from a
      * {@link CompletableFuture} completion callback running on a different
      * thread: none of these values depend on {@link ThreadLocal} state at
      * the point this method runs.
      */
-    private void recordObservability(Logged logged, String className, String methodName, String callerIdentity,
-                                      String callerIp, long durationNanos, boolean success, String exceptionType,
+    private void recordObservability(Logged logged, String className, String methodName, CallerInfo caller,
+                                      long durationNanos, boolean success, String exceptionType,
                                       String rootCauseType, FlowContext context) {
         try {
             metricsRecorder.record(className, methodName, durationNanos, success, exceptionType);
@@ -364,12 +385,25 @@ public class LoggedAspect {
             if (EmissionPolicy.shouldEmit(logged, durationNanos, success)) {
                 eventEmitter.emit(new MethodInvocationEvent(
                         className, methodName, Instant.now(), durationNanos, success, exceptionType, rootCauseType,
-                        callerIdentity, callerIp, context.traceId(), context.depth()
+                        caller.identity(), caller.ip(), caller.device(), context.traceId(), context.depth()
                 ));
             }
         } catch (RuntimeException e) {
             log.warn("Ignoring failure while recording observability data for {}.{}", className, methodName, e);
         }
+    }
+
+    /**
+     * Resolves everything about the caller this invocation needs, calling
+     * the client info port only for what is actually requested: the IP for
+     * {@code includeIp}, and the device for {@code includeDevice} or the
+     * application-wide device setting.
+     */
+    private CallerInfo resolveCaller(Logged logged) {
+        String identity = clientInfoPort.resolveCallerIdentity(logged.caller());
+        String ip = logged.includeIp() ? clientInfoPort.resolveCallerIp() : null;
+        String device = logged.includeDevice() || deviceIncludedGlobally ? clientInfoPort.resolveCallerDevice() : null;
+        return new CallerInfo(identity, ip, device);
     }
 
     /**

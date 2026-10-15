@@ -77,4 +77,20 @@ class InMemoryClientInfoPortTest {
             assertThat(clientInfoPort.resolveCallerIp()).isEqualTo("203.0.113.5");
         }
     }
+
+    @Nested
+    @DisplayName("resolveCallerDevice")
+    class ResolveCallerDevice {
+
+        @Test
+        @DisplayName("reports null until setCallerDevice is called, then the value set")
+        void reportsSetDevice() {
+            InMemoryClientInfoPort port = new InMemoryClientInfoPort();
+            assertThat(port.resolveCallerDevice()).isNull();
+
+            port.setCallerDevice("Android 14 / Chrome 129");
+
+            assertThat(port.resolveCallerDevice()).isEqualTo("Android 14 / Chrome 129");
+        }
+    }
 }

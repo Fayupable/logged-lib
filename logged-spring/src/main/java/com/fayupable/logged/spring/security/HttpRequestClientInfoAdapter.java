@@ -41,4 +41,14 @@ public class HttpRequestClientInfoAdapter implements IClientInfoPort {
     public String resolveCallerIp() {
         return RequestClientIpResolver.resolveIp(trustForwardedHeaders);
     }
+
+    /**
+     * Resolves a coarse description of the caller's device from the current
+     * request's {@code User-Agent} header, never the raw header itself; see
+     * {@link DeviceInfoResolver}.
+     */
+    @Override
+    public String resolveCallerDevice() {
+        return RequestDeviceResolver.resolveDevice();
+    }
 }

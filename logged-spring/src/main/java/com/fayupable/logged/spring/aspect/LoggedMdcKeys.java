@@ -56,6 +56,15 @@ public final class LoggedMdcKeys {
      */
     public static final String CALLER_IP = "logged.callerIp";
 
+    /**
+     * A coarse description of the caller's device, the same value reported
+     * as {@link com.fayupable.logged.core.model.MethodInvocationEvent#callerDevice()}.
+     * Only written while executing a method for which device info is
+     * requested ({@code @Logged(includeDevice = true)} or
+     * {@code logged.client-info.include-device=true}); absent otherwise.
+     */
+    public static final String CALLER_DEVICE = "logged.callerDevice";
+
     private LoggedMdcKeys() {
     }
 }

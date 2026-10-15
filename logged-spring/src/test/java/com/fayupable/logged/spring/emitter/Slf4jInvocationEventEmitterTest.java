@@ -192,4 +192,39 @@ class Slf4jInvocationEventEmitterTest {
             assertThat(message).doesNotContain("ip=");
         }
     }
+
+    @Nested
+    @DisplayName("callerDevice")
+    class CallerDevice {
+
+        private MethodInvocationEvent event(boolean success, String callerDevice) {
+            return new MethodInvocationEvent("AuthService", "login", Instant.now(), 12_000_000L, success,
+                    success ? null : "IllegalStateException", success ? null : "IllegalStateException",
+                    CALLER_IDENTITY, "203.0.113.5", callerDevice, "abc123", 0);
+        }
+
+        @Test
+        @DisplayName("appends a quoted device after the IP on a successful call")
+        void appendsDeviceOnSuccess() {
+            emitter.emit(event(true, "Windows / Chrome 129"));
+
+            assertThat(printedMessage()).contains("ip=203.0.113.5 device=\"Windows / Chrome 129\" AuthService.login");
+        }
+
+        @Test
+        @DisplayName("appends a quoted device on a failed call")
+        void appendsDeviceOnFailure() {
+            emitter.emit(event(false, "iOS 17 / Safari"));
+
+            assertThat(printedMessage()).contains("device=\"iOS 17 / Safari\"").contains("failed after");
+        }
+
+        @Test
+        @DisplayName("omits the device entirely when it is null")
+        void omitsDeviceWhenNull() {
+            emitter.emit(event(true, null));
+
+            assertThat(printedMessage()).doesNotContain("device=");
+        }
+    }
 }

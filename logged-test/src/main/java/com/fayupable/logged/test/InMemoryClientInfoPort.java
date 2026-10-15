@@ -18,6 +18,7 @@ public final class InMemoryClientInfoPort implements IClientInfoPort {
 
     private volatile String callerIdentity;
     private volatile String callerIp;
+    private volatile String callerDevice;
 
     /**
      * Creates an instance that reports the caller identity as
@@ -67,5 +68,27 @@ public final class InMemoryClientInfoPort implements IClientInfoPort {
      */
     public void setCallerIp(String callerIp) {
         this.callerIp = callerIp;
+    }
+
+    /**
+     * Returns the device description last set through
+     * {@link #setCallerDevice(String)}, or {@code null} if none was set,
+     * matching an adapter that does not support device resolution.
+     */
+    @Override
+    public String resolveCallerDevice() {
+        return callerDevice;
+    }
+
+    /**
+     * Sets the value {@link #resolveCallerDevice()} returns, for asserting
+     * on {@code @Logged(includeDevice = true)} behavior.
+     *
+     * @param callerDevice the coarse device description to report, for
+     *                     example {@code "Windows / Chrome 129"}, or
+     *                     {@code null} for none
+     */
+    public void setCallerDevice(String callerDevice) {
+        this.callerDevice = callerDevice;
     }
 }

@@ -316,4 +316,50 @@ class SpringSecurityClientInfoAdapterTest {
             assertThat(adapterWith(CallerMode.MASKED, null).resolveCallerIdentity(null)).isEqualTo("user:j***@example.com");
         }
     }
+
+    @Nested
+    @DisplayName("resolveCallerDevice")
+    class ResolveCallerDevice {
+
+        private final SpringSecurityClientInfoAdapter adapter = new SpringSecurityClientInfoAdapter(false);
+
+        private void withUserAgent(String userAgent) {
+            MockHttpServletRequest request = new MockHttpServletRequest();
+            request.setRemoteAddr("203.0.113.5");
+            if (userAgent != null) {
+                request.addHeader("User-Agent", userAgent);
+            }
+            RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+        }
+
+        @Test
+        @DisplayName("resolves a coarse OS / browser value from the User-Agent header")
+        void resolvesCoarseDevice() {
+            withUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.6668.90 Safari/537.36");
+
+            assertThat(adapter.resolveCallerDevice()).isEqualTo("Windows / Chrome 129");
+        }
+
+        @Test
+        @DisplayName("resolves to unknown when the request has no User-Agent header")
+        void resolvesUnknownWithoutHeader() {
+            withUserAgent(null);
+
+            assertThat(adapter.resolveCallerDevice()).isEqualTo("unknown");
+        }
+
+        @Test
+        @DisplayName("resolves to unknown when there is no active HTTP request")
+        void resolvesUnknownWithoutRequest() {
+            assertThat(adapter.resolveCallerDevice()).isEqualTo("unknown");
+        }
+
+        @Test
+        @DisplayName("never returns the raw header, even when it carries injected log text")
+        void neverReturnsRawHeader() {
+            withUserAgent("Mozilla/5.0 (Windows NT 10.0) Chrome/129\r\nFAKE LOG LINE [user:admin]");
+
+            assertThat(adapter.resolveCallerDevice()).isEqualTo("Windows / Chrome 129");
+        }
+    }
 }

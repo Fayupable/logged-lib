@@ -113,4 +113,28 @@ public @interface Logged {
      *         {@link CallerMode#DEFAULT}
      */
     CallerMode caller() default CallerMode.DEFAULT;
+
+    /**
+     * Whether a coarse description of the caller's device, such as
+     * {@code "Windows / Chrome 129"}, should be resolved and recorded for
+     * this method.
+     *
+     * <p>Works like {@link #includeIp()}: off by default and meant for the
+     * same small set of security-sensitive operations (login, registration,
+     * an OAuth callback), where knowing which kind of device made the call
+     * helps an audit. It is also turned on for every method when the
+     * application-wide setting (for example
+     * {@code logged.client-info.include-device} in logged-spring) is
+     * enabled; either one is enough.
+     *
+     * <p>Only an operating system and browser with major versions are ever
+     * recorded, never the raw {@code User-Agent} header. Even so, IP address
+     * plus browser plus version comes close to a device fingerprint, which
+     * is personal data under GDPR / KVKK, so keep it to the methods that
+     * actually need it.
+     *
+     * @return whether to record coarse device info, defaulting to
+     *         {@code false}
+     */
+    boolean includeDevice() default false;
 }

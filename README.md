@@ -112,7 +112,9 @@ This is a **proxy-based** Spring AOP aspect, not full AspectJ weaving: it only i
 | Timestamp and duration | Return value |
 | Success / failure | Exception message |
 | Caller identity (user id or IP) | Request headers, cookies, session data |
-| Call-chain trace id and depth | |
+| Call-chain trace id and depth | Raw `User-Agent` header |
+| Caller IP (opt-in, `includeIp`) | |
+| Coarse device, e.g. `Windows / Chrome 129` (opt-in, `includeDevice`) | |
 
 ## Call chain tracking
 
@@ -232,6 +234,8 @@ While a `@Logged` method runs, this library writes four keys into the current th
 | `logged.depth` | the current call's depth within its chain |
 | `logged.className` | the class name resolved for the current invocation |
 | `logged.methodName` | the method name resolved for the current invocation |
+| `logged.callerIp` | the caller's IP, only while a method with `includeIp = true` runs |
+| `logged.callerDevice` | the caller's coarse device, only while device info is requested (see [Recording the caller's device](#recording-the-callers-device)) |
 
 This is separate from, and in addition to, the summary line this library's own `InvocationEventEmitter` produces. Its real value is that **your own log statements**, written from inside a `@Logged` method, automatically pick up these fields too — without threading any of this information through by hand:
 
@@ -486,6 +490,7 @@ Every property below is optional and defaults to preserving the library's out-of
 | `logged.enabled` | `true` | Global switch. Setting this to `false` removes the aspect entirely; `@Logged` methods run uninstrumented. |
 | `logged.metrics.enabled` | `true` | Setting this to `false` falls back to a no-op metrics recorder even when a `MeterRegistry` bean is present. |
 | `logged.client-info.trust-forwarded-headers` | `false` | Whether the caller-IP resolver may trust the client-controlled `X-Forwarded-For` header. Only enable this after confirming the application sits behind a proxy that strips and re-sets this header itself — see [Caller resolution](#caller-resolution). |
+| `logged.client-info.include-device` | `false` | Records a coarse device description for **every** `@Logged` method, not only those with `@Logged(includeDevice = true)`. Keep it off and opt in per method — see [Recording the caller's device](#recording-the-callers-device). |
 | `logged.client-info.caller` | `name` | How an authenticated caller's name is written: `name` (as is), `masked` (e-mail addresses become `j***@example.com`), or `custom` (a `CallerIdentityResolver` bean decides). A single method can override it with `@Logged(caller = ...)` — see [Masking the caller's e-mail (GDPR / KVKK)](#masking-the-callers-e-mail-gdpr--kvkk). |
 | `logged.mdc.enabled` | `true` | Whether `logged.traceId`/`logged.depth`/`logged.className`/`logged.methodName` are written to the current thread's MDC during a `@Logged` call — see [Structured logging (MDC)](#structured-logging-mdc). |
 
@@ -551,6 +556,39 @@ public LoginResponse login(String username, String password) {
 Setting `includeIp = true` records the caller's IP unconditionally, in `MethodInvocationEvent#callerIp()` and, if MDC is enabled, under `LoggedMdcKeys.CALLER_IP` (`logged.callerIp`) — as a field alongside `callerIdentity`, not in place of it, and independent of whatever the identity tier resolves to. This is per-annotation, matching `slowThresholdMs`/`sampleRate`, rather than a global flag: IP is personal data under most privacy frameworks, so it is only recorded on the methods that explicitly opt in, not on every `@Logged` call across the application.
 
 `callerIp` is resolved synchronously on the calling thread, at the same point `callerIdentity` is — including for a method returning `CompletableFuture`, where it is captured before the async work begins, for the same reason described in [Async, `@Async`, and virtual thread support](#async-async-and-virtual-thread-support). It is `null` whenever it cannot be resolved (no active HTTP request, or a custom `IClientInfoPort` that does not implement `resolveCallerIp()`), never a placeholder string like `"unknown"` — consistent with `exceptionType`/`rootCauseType`, this library's other nullable structured fields.
+
+### Recording the caller's device
+
+For the same security-sensitive operations `includeIp` is meant for, the kind of device that made the call can help an audit ("this login came from an unfamiliar Android phone"):
+
+```java
+@Logged(includeIp = true, includeDevice = true)
+public LoginResponse login(LoginRequest request) { ... }
+```
+
+```
+[ip:203.0.113.5] ip=203.0.113.5 device="Windows / Chrome 129" AuthService.login completed in 87ms
+```
+
+The value is **never the raw `User-Agent` header**. It is parsed into an operating system and a browser, each with its major version only, and assembled from a fixed set of names plus at most four digits, so nothing the client sends (including line breaks or fake log text) can reach a log line. Input is capped at 512 characters, and parsing never throws.
+
+| `User-Agent` | Recorded as |
+|---|---|
+| Chrome 129 on Windows | `Windows / Chrome 129` |
+| Edge, Opera, Samsung Internet | `Windows / Edge 129`, `Windows / Opera 114`, `Android 14 / Samsung Internet 26` |
+| Safari on iPhone | `iOS 17 / Safari` |
+| Chrome / Firefox / Edge on iOS (`CriOS`, `FxiOS`, `EdgiOS`) | `iOS 17 / Chrome 129`, `iOS 17 / Firefox 131`, `iOS 17 / Edge 129` |
+| curl, Postman | `curl`, `Postman` |
+| Googlebot and other crawlers | `Bot` |
+| missing header, no request (scheduler, async thread), unrecognized | `unknown` |
+
+It appears as `MethodInvocationEvent#callerDevice()`, the `logged.callerDevice` MDC key, ` device="..."` on the SLF4J line and `callerDevice` in JSON output. When device info is not requested the field is `null` and nothing is written, so existing log output is unchanged. Like `callerIp`, it is resolved synchronously on the calling thread, so it is captured correctly for `CompletableFuture`-returning methods. A custom `IClientInfoPort` can support it by overriding `resolveCallerDevice()`; one that does not leaves it `null`.
+
+`logged.client-info.include-device=true` turns it on for every `@Logged` method; either the property or the annotation is enough.
+
+**Privacy:** IP address plus browser plus version comes close to a device fingerprint, which is personal data under GDPR / KVKK. Keep the property off and enable device info only on the few methods where an audit needs it, such as login, registration and an OAuth callback.
+
+**Known limitation:** iPadOS in desktop mode reports itself as macOS, so it is recorded as `macOS / Safari`. No attempt is made to guess otherwise.
 
 ### Masking the caller's e-mail (GDPR / KVKK)
 

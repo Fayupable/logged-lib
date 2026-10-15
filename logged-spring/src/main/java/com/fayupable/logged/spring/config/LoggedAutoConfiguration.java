@@ -127,6 +127,7 @@ public class LoggedAutoConfiguration {
     @ConditionalOnProperty(prefix = "logged", name = "enabled", havingValue = "true", matchIfMissing = true)
     public LoggedAspect loggedAspect(InvocationEventEmitter eventEmitter, MetricsRecorder metricsRecorder,
                                       IClientInfoPort clientInfoPort, LoggedProperties properties) {
-        return new LoggedAspect(eventEmitter, metricsRecorder, clientInfoPort, properties.getMdc().isEnabled());
+        return new LoggedAspect(eventEmitter, metricsRecorder, clientInfoPort, properties.getMdc().isEnabled(),
+                properties.getClientInfo().isIncludeDevice());
     }
 }

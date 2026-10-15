@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-15
+
+### Added
+
+- Opt-in coarse device info: `@Logged(includeDevice = true)` and `logged.client-info.include-device` (default `false`) record the caller's device as an operating system and browser with major versions only, e.g. `Windows / Chrome 129`, `iOS 17 / Safari`, `curl` or `Bot`; `unknown` when there is no request, no header or nothing recognizable. Either the property or the annotation enables it, matching `includeIp`.
+- New `DeviceInfoResolver` (`logged-spring`) parses the `User-Agent` header without any external dependency. Output is built only from a fixed set of names plus at most four version digits, so header content can never reach a log line; input is capped at 512 characters and parsing never throws. Detects Edge (including `EdgiOS`/`EdgA`), Opera with version, Samsung Internet, Chrome and Firefox on iOS (`CriOS`/`FxiOS`), curl, Postman and crawlers.
+- `MethodInvocationEvent#callerDevice()`, `IClientInfoPort#resolveCallerDevice()` (a `default` method returning `null`, so existing implementations remain source-compatible), implementations in `SpringSecurityClientInfoAdapter`/`HttpRequestClientInfoAdapter`, a new `LoggedMdcKeys.CALLER_DEVICE` MDC key, ` device="..."` in `Slf4jInvocationEventEmitter`, `callerDevice` in `JsonInvocationEventEmitter`, and `InMemoryClientInfoPort#setCallerDevice` in `logged-test`.
+
+### Compatibility
+
+- With device info off (the default), log and JSON output are byte-for-byte unchanged: `callerDevice` is omitted from JSON when `null` rather than written as `null`.
+- `MethodInvocationEvent` keeps its previous 11-argument constructor, which delegates with `callerDevice = null`, so code constructing events directly compiles unchanged. Code that deconstructs the record with a record pattern (`case MethodInvocationEvent(var a, ..., var k)`) must add the new component.
+- `LoggedAspect`'s existing constructors are kept and leave device info off.
+
 ## [1.3.1] - 2026-10-14
 
 ### Added

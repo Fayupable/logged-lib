@@ -1,8 +1,6 @@
 package com.fayupable.logged.spring.security;
 
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.web.context.request.RequestContextHolder;
-import org.springframework.web.context.request.ServletRequestAttributes;
 
 /**
  * Resolves the current HTTP request's client IP address, shared by every
@@ -59,7 +57,7 @@ final class RequestClientIpResolver {
      *         job)
      */
     static String resolveIp(boolean trustForwardedHeaders) {
-        HttpServletRequest request = currentRequest();
+        HttpServletRequest request = CurrentRequest.get();
         if (request == null) {
             return null;
         }
@@ -72,12 +70,5 @@ final class RequestClientIpResolver {
         }
 
         return request.getRemoteAddr();
-    }
-
-    private static HttpServletRequest currentRequest() {
-        if (!(RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attributes)) {
-            return null;
-        }
-        return attributes.getRequest();
     }
 }
