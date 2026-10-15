@@ -1,5 +1,8 @@
 package com.fayupable.logged.spring.config;
 
+import org.springframework.aop.aspectj.annotation.AspectJProxyFactory;
+import com.fayupable.logged.core.model.MethodInvocationEvent;
+import com.fayupable.logged.core.annotation.Logged;
 import com.fayupable.logged.core.annotation.CallerMode;
 import com.fayupable.logged.core.port.IClientInfoPort;
 import com.fayupable.logged.core.port.InvocationEventEmitter;
@@ -266,6 +269,80 @@ class LoggedAutoConfigurationTest {
                         .isInstanceOf(IllegalStateException.class)
                         .hasMessageContaining("CallerIdentityResolver");
             });
+        }
+    }
+
+    @Nested
+    @DisplayName("logged.client-info.include-device")
+    class IncludeDeviceProperty {
+
+        interface PlainService {
+            String call();
+        }
+
+        static class PlainServiceImpl implements PlainService {
+            @Logged
+            @Override
+            public String call() {
+                return "ok";
+            }
+        }
+
+        @Configuration(proxyBeanMethods = false)
+        static class RecordingConfiguration {
+            @Bean
+            InMemoryEventSink invocationEventEmitter() {
+                return new InMemoryEventSink();
+            }
+
+            @Bean
+            IClientInfoPort clientInfoPort() {
+                return new IClientInfoPort() {
+                    @Override
+                    public String resolveCallerIdentity() {
+                        return "user:42";
+                    }
+
+                    @Override
+                    public String resolveCallerDevice() {
+                        return "Windows / Chrome 129";
+                    }
+                };
+            }
+        }
+
+        static class InMemoryEventSink implements InvocationEventEmitter {
+            final List<MethodInvocationEvent> events = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+            @Override
+            public void emit(MethodInvocationEvent event) {
+                events.add(event);
+            }
+        }
+
+        private String deviceOfPlainCall(org.springframework.context.ApplicationContext context) {
+            AspectJProxyFactory factory = new AspectJProxyFactory(new PlainServiceImpl());
+            factory.addAspect(context.getBean(LoggedAspect.class));
+            PlainService proxy = factory.getProxy();
+            proxy.call();
+            return context.getBean(InMemoryEventSink.class).events.get(0).callerDevice();
+        }
+
+        @Test
+        @DisplayName("is off by default, so a plain @Logged method records no device")
+        void offByDefault() {
+            contextRunner.withUserConfiguration(RecordingConfiguration.class).run(context -> {
+                assertThat(context.getBean(LoggedProperties.class).getClientInfo().isIncludeDevice()).isFalse();
+                assertThat(deviceOfPlainCall(context)).isNull();
+            });
+        }
+
+        @Test
+        @DisplayName("records the device for every @Logged method when set to true")
+        void recordsDeviceWhenEnabled() {
+            contextRunner.withUserConfiguration(RecordingConfiguration.class)
+                    .withPropertyValues("logged.client-info.include-device=true")
+                    .run(context -> assertThat(deviceOfPlainCall(context)).isEqualTo("Windows / Chrome 129"));
         }
     }
 }

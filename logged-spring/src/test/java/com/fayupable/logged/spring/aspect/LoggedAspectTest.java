@@ -632,6 +632,95 @@ class LoggedAspectTest {
     }
 
     @Nested
+    @DisplayName("Logged#includeDevice")
+    class IncludeDevice {
+
+        private static final String DEVICE = "Windows / Chrome 129";
+
+        private CountingClientInfoPort clientInfoPort;
+
+        @BeforeEach
+        void setUpPort() {
+            clientInfoPort = new CountingClientInfoPort(CALLER_IDENTITY, null, DEVICE);
+        }
+
+        private SecuritySensitiveService serviceWith(boolean deviceIncludedGlobally) {
+            LoggedAspect deviceAspect = new LoggedAspect(eventEmitter, metricsRecorder, clientInfoPort, true,
+                    deviceIncludedGlobally);
+            return proxyWith(deviceAspect, new SecuritySensitiveServiceImpl());
+        }
+
+        @Test
+        @DisplayName("populates callerDevice when includeDevice = true")
+        void populatesCallerDeviceWhenAnnotated() {
+            serviceWith(false).register();
+
+            assertThat(eventEmitter.events.get(0).callerDevice()).isEqualTo(DEVICE);
+            assertThat(clientInfoPort.resolveCallerDeviceInvocations).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("leaves callerDevice null by default, without calling resolveCallerDevice")
+        void leavesCallerDeviceNullByDefault() {
+            serviceWith(false).readData();
+
+            assertThat(eventEmitter.events.get(0).callerDevice()).isNull();
+            assertThat(clientInfoPort.resolveCallerDeviceInvocations).isZero();
+        }
+
+        @Test
+        @DisplayName("populates callerDevice for every method when enabled globally")
+        void populatesCallerDeviceWhenEnabledGlobally() {
+            serviceWith(true).readData();
+
+            assertThat(eventEmitter.events.get(0).callerDevice()).isEqualTo(DEVICE);
+        }
+
+        @Test
+        @DisplayName("keeps the legacy constructors' default of no device info")
+        void legacyConstructorsLeaveDeviceOff() {
+            LoggedAspect legacyAspect = new LoggedAspect(eventEmitter, metricsRecorder, clientInfoPort, true);
+            SecuritySensitiveService service = proxyWith(legacyAspect, new SecuritySensitiveServiceImpl());
+            service.readData();
+
+            assertThat(eventEmitter.events.get(0).callerDevice()).isNull();
+            assertThat(clientInfoPort.resolveCallerDeviceInvocations).isZero();
+        }
+
+        @Test
+        @DisplayName("exposes the device in the MDC during the call and removes it afterwards")
+        void exposesDeviceInMdc() {
+            String seenInsideCall = serviceWith(false).register();
+
+            assertThat(seenInsideCall).isEqualTo(DEVICE);
+            assertThat(MDC.get(LoggedMdcKeys.CALLER_DEVICE)).isNull();
+        }
+
+        @Test
+        @DisplayName("captures the device before a CompletableFuture-returning call completes")
+        void capturesDeviceForCompletableFuture() {
+            CompletableFuture<String> future = new CompletableFuture<>();
+            serviceWith(false).registerAsync(future);
+            assertThat(eventEmitter.events).isEmpty();
+
+            future.complete("ok");
+
+            assertThat(eventEmitter.events.get(0).callerDevice()).isEqualTo(DEVICE);
+            assertThat(clientInfoPort.resolveCallerDeviceInvocations).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("leaves callerDevice null when the port does not support device resolution")
+        void leavesCallerDeviceNullForLegacyPort() {
+            LoggedAspect legacyPortAspect = new LoggedAspect(eventEmitter, metricsRecorder, () -> CALLER_IDENTITY, true, true);
+            SecuritySensitiveService service = proxyWith(legacyPortAspect, new SecuritySensitiveServiceImpl());
+            service.register();
+
+            assertThat(eventEmitter.events.get(0).callerDevice()).isNull();
+        }
+    }
+
+    @Nested
     @DisplayName("Logged#caller")
     class CallerModeOverride {
 
@@ -828,6 +917,10 @@ class LoggedAspectTest {
         CompletableFuture<String> loginAsync(CompletableFuture<String> future);
 
         String audit();
+
+        String register();
+
+        CompletableFuture<String> registerAsync(CompletableFuture<String> future);
     }
 
     static class SecuritySensitiveServiceImpl implements SecuritySensitiveService {
@@ -857,16 +950,41 @@ class LoggedAspectTest {
         public String audit() {
             return "audited";
         }
+
+        @Logged(includeDevice = true)
+        @Override
+        public String register() {
+            return MDC.get(LoggedMdcKeys.CALLER_DEVICE);
+        }
+
+        @Logged(includeDevice = true)
+        @Override
+        public CompletableFuture<String> registerAsync(CompletableFuture<String> future) {
+            return future;
+        }
     }
 
     static class CountingClientInfoPort implements IClientInfoPort {
         private final String identity;
         private final String ip;
+        private final String device;
         int resolveCallerIpInvocations;
+        int resolveCallerDeviceInvocations;
 
         CountingClientInfoPort(String identity, String ip) {
+            this(identity, ip, null);
+        }
+
+        CountingClientInfoPort(String identity, String ip, String device) {
             this.identity = identity;
             this.ip = ip;
+            this.device = device;
+        }
+
+        @Override
+        public String resolveCallerDevice() {
+            resolveCallerDeviceInvocations++;
+            return device;
         }
 
         @Override

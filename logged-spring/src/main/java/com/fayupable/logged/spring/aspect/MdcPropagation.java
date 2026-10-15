@@ -26,7 +26,7 @@ final class MdcPropagation {
 
     /**
      * Writes {@code context}, {@code className}, {@code methodName}, and,
-     * when present, {@code callerIp} into the current thread's MDC under
+     * when present, {@code callerIp} and {@code callerDevice} into the current thread's MDC under
      * {@link LoggedMdcKeys}, and returns a {@link Runnable} that restores
      * whatever value each key held before this call, once run.
      *
@@ -40,23 +40,28 @@ final class MdcPropagation {
      *                   invoked method; when {@code null}, {@link LoggedMdcKeys#CALLER_IP}
      *                   is left untouched rather than written as an empty
      *                   or missing value
+     * @param callerDevice the caller's coarse device description, or
+     *                   {@code null} if device info was not requested; when
+     *                   {@code null}, {@link LoggedMdcKeys#CALLER_DEVICE} is
+     *                   left untouched, the same as {@code callerIp}
      * @return a {@link Runnable} that undoes this write; must be run once
      *         the invocation ends, typically in a {@code finally} block
      */
-    static Runnable push(FlowContext context, String className, String methodName, String callerIp) {
+    static Runnable push(FlowContext context, String className, String methodName, String callerIp,
+                         String callerDevice) {
         String previousTraceId = MDC.get(LoggedMdcKeys.TRACE_ID);
         String previousDepth = MDC.get(LoggedMdcKeys.DEPTH);
         String previousClassName = MDC.get(LoggedMdcKeys.CLASS_NAME);
         String previousMethodName = MDC.get(LoggedMdcKeys.METHOD_NAME);
         String previousCallerIp = MDC.get(LoggedMdcKeys.CALLER_IP);
+        String previousCallerDevice = MDC.get(LoggedMdcKeys.CALLER_DEVICE);
 
         MDC.put(LoggedMdcKeys.TRACE_ID, context.traceId());
         MDC.put(LoggedMdcKeys.DEPTH, String.valueOf(context.depth()));
         MDC.put(LoggedMdcKeys.CLASS_NAME, className);
         MDC.put(LoggedMdcKeys.METHOD_NAME, methodName);
-        if (callerIp != null) {
-            MDC.put(LoggedMdcKeys.CALLER_IP, callerIp);
-        }
+        putIfPresent(LoggedMdcKeys.CALLER_IP, callerIp);
+        putIfPresent(LoggedMdcKeys.CALLER_DEVICE, callerDevice);
 
         return () -> {
             restore(LoggedMdcKeys.TRACE_ID, previousTraceId);
@@ -64,7 +69,14 @@ final class MdcPropagation {
             restore(LoggedMdcKeys.CLASS_NAME, previousClassName);
             restore(LoggedMdcKeys.METHOD_NAME, previousMethodName);
             restore(LoggedMdcKeys.CALLER_IP, previousCallerIp);
+            restore(LoggedMdcKeys.CALLER_DEVICE, previousCallerDevice);
         };
+    }
+
+    private static void putIfPresent(String key, String value) {
+        if (value != null) {
+            MDC.put(key, value);
+        }
     }
 
     private static void restore(String key, String previousValue) {

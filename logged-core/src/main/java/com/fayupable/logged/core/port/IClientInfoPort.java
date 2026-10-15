@@ -80,4 +80,26 @@ public interface IClientInfoPort {
     default String resolveCallerIp() {
         return null;
     }
+
+    /**
+     * Resolves a coarse description of the device that triggered the current
+     * invocation, such as {@code "Windows / Chrome 129"}.
+     *
+     * <p>Implementations must never return the raw {@code User-Agent} header
+     * or anything else copied from the request: only a value built from a
+     * fixed set of operating system and browser names plus major version
+     * digits, so no client-controlled text can reach a log line.
+     *
+     * <p>This is a default method so that existing implementations remain
+     * source-compatible. The default returns {@code null}, meaning "this
+     * adapter does not support resolving device info", following the same
+     * convention as {@link #resolveCallerIp()}.
+     *
+     * @return a coarse device description, a placeholder such as
+     *         {@code "unknown"} when it cannot be resolved, or {@code null}
+     *         if this adapter does not implement device resolution
+     */
+    default String resolveCallerDevice() {
+        return null;
+    }
 }

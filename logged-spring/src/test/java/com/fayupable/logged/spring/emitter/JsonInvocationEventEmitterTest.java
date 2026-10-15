@@ -210,4 +210,33 @@ class JsonInvocationEventEmitterTest {
             assertThat(message).contains("\"callerIp\":\"203.0.113.5\"");
         }
     }
+
+    @Nested
+    @DisplayName("callerDevice")
+    class CallerDevice {
+
+        private MethodInvocationEvent eventWithDevice(String callerDevice) {
+            return new MethodInvocationEvent("AuthService", "login", Instant.parse("2026-01-01T00:00:00Z"),
+                    12_000_000L, true, null, null, CALLER_IDENTITY, null, callerDevice, "abc123", 0);
+        }
+
+        @Test
+        @DisplayName("writes callerDevice right after callerIp when present")
+        void writesCallerDevice() {
+            emitter.emit(eventWithDevice("Windows / Chrome 129"));
+
+            assertThat(printedMessage())
+                    .contains("\"callerIp\":null,\"callerDevice\":\"Windows / Chrome 129\",\"traceId\"");
+        }
+
+        @Test
+        @DisplayName("omits callerDevice when null, keeping the pre-1.4.0 output unchanged")
+        void omitsCallerDeviceWhenNull() {
+            emitter.emit(eventWithDevice(null));
+
+            assertThat(printedMessage())
+                    .doesNotContain("callerDevice")
+                    .contains("\"callerIp\":null,\"traceId\"");
+        }
+    }
 }

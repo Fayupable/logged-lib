@@ -2,6 +2,7 @@ package com.fayupable.logged.core.port;
 
 import com.fayupable.logged.core.annotation.CallerMode;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
@@ -17,5 +18,13 @@ class IClientInfoPortTest {
         IClientInfoPort port = () -> "user:42";
 
         assertThat(port.resolveCallerIdentity(mode)).isEqualTo("user:42");
+    }
+
+    @Test
+    @DisplayName("resolveCallerDevice defaults to null for implementations without device support")
+    void deviceDefaultsToNull() {
+        IClientInfoPort port = () -> "user:42";
+
+        assertThat(port.resolveCallerDevice()).isNull();
     }
 }

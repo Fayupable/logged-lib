@@ -70,6 +70,13 @@ public class JsonInvocationEventEmitter implements InvocationEventEmitter {
         json.append(',');
         appendString(json, "callerIp", event.callerIp());
         json.append(',');
+        if (event.callerDevice() != null) {
+            // Omitted rather than written as null when device info was not
+            // requested, so output for applications that never enable it is
+            // byte-for-byte the same as before this field existed.
+            appendString(json, "callerDevice", event.callerDevice());
+            json.append(',');
+        }
         appendString(json, "traceId", event.traceId());
         json.append(',');
         appendNumber(json, "depth", event.depth());

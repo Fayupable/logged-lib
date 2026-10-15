@@ -82,6 +82,20 @@ public class LoggedProperties {
          */
         private CallerMode caller = CallerMode.NAME;
 
+        /**
+         * Whether a coarse description of the caller's device, such as
+         * {@code "Windows / Chrome 129"}, is recorded for every
+         * {@code @Logged} method, not only those annotated with
+         * {@code includeDevice = true}.
+         *
+         * <p>Defaults to {@code false}. IP address plus browser plus version
+         * comes close to a device fingerprint, which is personal data under
+         * GDPR / KVKK, so the recommended setup keeps this off and enables
+         * device info per method only where an audit needs it (login,
+         * registration, an OAuth callback).
+         */
+        private boolean includeDevice = false;
+
         public boolean isTrustForwardedHeaders() {
             return trustForwardedHeaders;
         }
@@ -96,6 +110,14 @@ public class LoggedProperties {
 
         public void setCaller(CallerMode caller) {
             this.caller = caller;
+        }
+
+        public boolean isIncludeDevice() {
+            return includeDevice;
+        }
+
+        public void setIncludeDevice(boolean includeDevice) {
+            this.includeDevice = includeDevice;
         }
     }
 

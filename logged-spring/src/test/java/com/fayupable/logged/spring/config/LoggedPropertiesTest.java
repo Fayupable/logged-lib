@@ -61,4 +61,15 @@ class LoggedPropertiesTest {
 
         assertThat(properties.getMetrics().isEnabled()).isFalse();
     }
+
+    @Test
+    @DisplayName("client info include-device defaults to false and can be enabled")
+    void includeDeviceDefaultsToFalse() {
+        LoggedProperties properties = new LoggedProperties();
+        assertThat(properties.getClientInfo().isIncludeDevice()).isFalse();
+
+        properties.getClientInfo().setIncludeDevice(true);
+
+        assertThat(properties.getClientInfo().isIncludeDevice()).isTrue();
+    }
 }
