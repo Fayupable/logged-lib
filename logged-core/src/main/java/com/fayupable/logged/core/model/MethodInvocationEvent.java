@@ -48,6 +48,14 @@ import java.time.Instant;
  *                         is {@code true} for the invoked method, or when
  *                         the caller-identity resolver in use does not
  *                         support resolving it at all
+ * @param callerDevice     a coarse description of the caller's device such
+ *                         as {@code "Windows / Chrome 129"}, or {@code null}
+ *                         if device info was not requested for the invoked
+ *                         method. Never the raw {@code User-Agent} header:
+ *                         only a parsed operating system and browser with
+ *                         major versions, or a placeholder such as
+ *                         {@code "unknown"} when it was requested but could
+ *                         not be resolved
  * @param traceId          the {@link FlowContext#traceId()} shared by every
  *                         call in the same chain of nested {@code @Logged}
  *                         invocations, allowing log output to be
@@ -66,7 +74,23 @@ public record MethodInvocationEvent(
         String rootCauseType,
         String callerIdentity,
         String callerIp,
+        String callerDevice,
         String traceId,
         int depth
 ) {
+
+    /**
+     * Creates an event without device info, with {@code callerDevice} set to
+     * {@code null}.
+     *
+     * <p>This keeps the canonical constructor's signature from before
+     * {@code callerDevice} was added, so code that already constructs events
+     * directly (custom interceptors, tests) keeps compiling unchanged.
+     */
+    public MethodInvocationEvent(String className, String methodName, Instant timestamp, long durationNanos,
+                                 boolean success, String exceptionType, String rootCauseType,
+                                 String callerIdentity, String callerIp, String traceId, int depth) {
+        this(className, methodName, timestamp, durationNanos, success, exceptionType, rootCauseType,
+                callerIdentity, callerIp, null, traceId, depth);
+    }
 }
