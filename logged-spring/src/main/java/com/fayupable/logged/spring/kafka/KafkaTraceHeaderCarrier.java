@@ -2,6 +2,7 @@ package com.fayupable.logged.spring.kafka;
 
 import com.fayupable.logged.core.model.FlowContext;
 import com.fayupable.logged.spring.aspect.FlowContextCarrier;
+import com.fayupable.logged.spring.support.TraceDepth;
 import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.header.Headers;
 
@@ -121,13 +122,9 @@ public final class KafkaTraceHeaderCarrier {
 
     private static int readDepth(Headers headers) {
         Header depthHeader = headers.lastHeader(DEPTH_HEADER);
-        if (depthHeader == null) {
+        if (depthHeader == null || depthHeader.value() == null) {
             return 0;
         }
-        try {
-            return Integer.parseInt(new String(depthHeader.value(), StandardCharsets.UTF_8));
-        } catch (NumberFormatException malformedDepth) {
-            return 0;
-        }
+        return TraceDepth.parse(new String(depthHeader.value(), StandardCharsets.UTF_8));
     }
 }

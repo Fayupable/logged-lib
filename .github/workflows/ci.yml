@@ -13,6 +13,10 @@ on:
       - 'dev/**'
   workflow_dispatch:
 
+# The build only reads the repository; the job token needs no write access.
+permissions:
+  contents: read
+
 jobs:
   verify:
     runs-on: ubuntu-latest

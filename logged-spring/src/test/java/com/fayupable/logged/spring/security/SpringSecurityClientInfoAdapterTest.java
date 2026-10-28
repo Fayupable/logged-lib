@@ -362,4 +362,56 @@ class SpringSecurityClientInfoAdapterTest {
             assertThat(adapter.resolveCallerDevice()).isEqualTo("Windows / Chrome 129");
         }
     }
+
+    @Nested
+    @DisplayName("with X-Forwarded-For trust enabled and a malformed header")
+    class WithMalformedForwardedHeader {
+
+        private final SpringSecurityClientInfoAdapter trustingAdapter = new SpringSecurityClientInfoAdapter(true);
+
+        @ParameterizedTest
+        @ValueSource(strings = {
+                "198.51.100.99\r\nFAKE LOG LINE",
+                "unknown",
+                "198.51.100.99:8080x",
+                "[2001:db8::1]:443",
+                "fe80::1%eth0",
+                "<script>",
+                "1111:2222:3333:4444:5555:6666:7777:8888:9999:aaaa"
+        })
+        @DisplayName("ignores an entry that is not shaped like an IP and uses the remote address")
+        void ignoresMalformedEntry(String forwardedFor) {
+            withRequestFrom("203.0.113.5", forwardedFor);
+
+            assertThat(trustingAdapter.resolveCallerIdentity()).isEqualTo("ip:203.0.113.5");
+            assertThat(trustingAdapter.resolveCallerIp()).isEqualTo("203.0.113.5");
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"198.51.100.99", "2001:db8::1", "2001:DB8::ABCD", "::ffff:198.51.100.99", "ffff:FFFF::9", "a0:A0::90"})
+        @DisplayName("still accepts IPv4, IPv6 and IPv4-mapped entries")
+        void acceptsWellFormedEntries(String forwardedFor) {
+            withRequestFrom("203.0.113.5", forwardedFor + ", 10.0.0.1");
+
+            assertThat(trustingAdapter.resolveCallerIp()).isEqualTo(forwardedFor);
+        }
+
+        @Test
+        @DisplayName("accepts an entry of exactly the maximum IPv6 length")
+        void acceptsMaximumLength() {
+            String longestIpv6 = "0000:0000:0000:0000:0000:ffff:255.255.255.255";
+            withRequestFrom("203.0.113.5", longestIpv6);
+
+            assertThat(longestIpv6).hasSize(45);
+            assertThat(trustingAdapter.resolveCallerIp()).isEqualTo(longestIpv6);
+        }
+
+        @Test
+        @DisplayName("falls back to the remote address when the first entry is empty")
+        void ignoresEmptyFirstEntry() {
+            withRequestFrom("203.0.113.5", " , 198.51.100.99");
+
+            assertThat(trustingAdapter.resolveCallerIp()).isEqualTo("203.0.113.5");
+        }
+    }
 }

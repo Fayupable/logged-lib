@@ -227,4 +227,43 @@ class Slf4jInvocationEventEmitterTest {
             assertThat(printedMessage()).doesNotContain("device=");
         }
     }
+
+    @Nested
+    @DisplayName("log injection")
+    class LogInjection {
+
+        private MethodInvocationEvent event(boolean success, String identity, String ip) {
+            return new MethodInvocationEvent("AuthService", "login", Instant.now(), 12_000_000L, success,
+                    success ? null : "IllegalStateException", success ? null : "IllegalStateException",
+                    identity, ip, null, "abc123", 0);
+        }
+
+        @Test
+        @DisplayName("keeps a caller identity with CR/LF on one line, with the break visible")
+        void escapesLineBreaksInIdentity() {
+            emitter.emit(event(true, "user:eve\r\nFAKE [user:admin] AdminService.deleteAll completed", null));
+
+            assertThat(printedMessage())
+                    .doesNotContain("\r", "\n")
+                    .startsWith("[user:eve\\r\\nFAKE [user:admin]");
+        }
+
+        @Test
+        @DisplayName("keeps an IP with a line break on one line, on a failed call too")
+        void escapesLineBreaksInIp() {
+            emitter.emit(event(false, CALLER_IDENTITY, "203.0.113.5\nFAKE"));
+
+            assertThat(printedMessage()).doesNotContain("\n").contains("ip=203.0.113.5\\nFAKE");
+        }
+
+        @Test
+        @DisplayName("writes ordinary values exactly as before")
+        void leavesOrdinaryValuesUnchanged() {
+            emitter.emit(new MethodInvocationEvent("AuthService", "login", Instant.now(), 12_000_000L, true, null, null,
+                    "user:j***@example.com", "203.0.113.5", "Windows / Chrome 129", "abc123", 0));
+
+            assertThat(printedMessage()).isEqualTo(
+                    "[user:j***@example.com] ip=203.0.113.5 device=\"Windows / Chrome 129\" AuthService.login completed in 12ms");
+        }
+    }
 }

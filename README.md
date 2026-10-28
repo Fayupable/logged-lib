@@ -489,7 +489,7 @@ Every property below is optional and defaults to preserving the library's out-of
 |---|---|---|
 | `logged.enabled` | `true` | Global switch. Setting this to `false` removes the aspect entirely; `@Logged` methods run uninstrumented. |
 | `logged.metrics.enabled` | `true` | Setting this to `false` falls back to a no-op metrics recorder even when a `MeterRegistry` bean is present. |
-| `logged.client-info.trust-forwarded-headers` | `false` | Whether the caller-IP resolver may trust the client-controlled `X-Forwarded-For` header. Only enable this after confirming the application sits behind a proxy that strips and re-sets this header itself — see [Caller resolution](#caller-resolution). |
+| `logged.client-info.trust-forwarded-headers` | `false` | Whether the caller-IP resolver may trust the client-controlled `X-Forwarded-For` header. Only enable this after confirming the application sits behind a proxy that strips and re-sets this header itself; do **not** enable it behind a proxy that appends to the header — see [Caller resolution](#caller-resolution). |
 | `logged.client-info.include-device` | `false` | Records a coarse device description for **every** `@Logged` method, not only those with `@Logged(includeDevice = true)`. Keep it off and opt in per method — see [Recording the caller's device](#recording-the-callers-device). |
 | `logged.client-info.caller` | `name` | How an authenticated caller's name is written: `name` (as is), `masked` (e-mail addresses become `j***@example.com`), or `custom` (a `CallerIdentityResolver` bean decides). A single method can override it with `@Logged(caller = ...)` — see [Masking the caller's e-mail (GDPR / KVKK)](#masking-the-callers-e-mail-gdpr--kvkk). |
 | `logged.mdc.enabled` | `true` | Whether `logged.traceId`/`logged.depth`/`logged.className`/`logged.methodName` are written to the current thread's MDC during a `@Logged` call — see [Structured logging (MDC)](#structured-logging-mdc). |
@@ -541,6 +541,10 @@ The default `IClientInfoPort` (active whenever Spring Security and Spring Web ar
 3. `unknown`, if neither is available (for example, a scheduled job with no active request).
 
 The client IP is read from `getRemoteAddr()`, **not** from `X-Forwarded-For`, by default. That header is controlled by the client and can be forged by anyone unless the application sits behind a proxy configured to strip and re-set it — a deployment detail this library cannot know on its own. If your application does sit behind such a proxy, set `logged.client-info.trust-forwarded-headers=true` explicitly, mirroring how Spring Security itself requires trusted proxies to be declared rather than assumed.
+
+When enabled, the **first** (leftmost) `X-Forwarded-For` entry is used. That is only correct when your proxy replaces the header. Many proxies append to it instead (for example nginx with `$proxy_add_x_forwarded_for`, or a load balancer's default behavior); then the leftmost entry is whatever the client sent, and the logged IP can be spoofed. In that setup, leave this setting off. As a safety net, an entry that is not shaped like an IP address (only digits, hex letters, `.` and `:`, at most 45 characters) is ignored and `getRemoteAddr()` is used instead, so a forged header can never write arbitrary text into a log line.
+
+**Log injection.** Values that can originate outside the application — the caller identity (for example a username chosen at registration, a masked e-mail's domain, or a `CallerIdentityResolver` result), the IP and the device — are kept on a single line in the SLF4J summary line and in the MDC: line breaks and other control characters are written as visible escapes such as `\n` instead of starting a forged log line. Ordinary values are written unchanged. The JSON emitter already escapes every value. Trace depths received over HTTP, Kafka or RabbitMQ are clamped to `0..1000`.
 
 ### Recording the caller's IP alongside identity
 
