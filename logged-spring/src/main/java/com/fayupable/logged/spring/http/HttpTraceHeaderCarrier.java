@@ -2,6 +2,7 @@ package com.fayupable.logged.spring.http;
 
 import com.fayupable.logged.core.model.FlowContext;
 import com.fayupable.logged.spring.aspect.FlowContextCarrier;
+import com.fayupable.logged.spring.support.TraceDepth;
 
 import java.util.function.BiConsumer;
 import java.util.function.Function;
@@ -143,14 +144,6 @@ public final class HttpTraceHeaderCarrier {
     }
 
     private static int readDepth(Function<String, String> headerReader) {
-        String depth = headerReader.apply(DEPTH_HEADER);
-        if (depth == null) {
-            return 0;
-        }
-        try {
-            return Integer.parseInt(depth);
-        } catch (NumberFormatException malformedDepth) {
-            return 0;
-        }
+        return TraceDepth.parse(headerReader.apply(DEPTH_HEADER));
     }
 }

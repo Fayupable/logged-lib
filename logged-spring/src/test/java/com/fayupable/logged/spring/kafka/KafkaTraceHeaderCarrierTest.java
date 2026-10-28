@@ -155,4 +155,31 @@ class KafkaTraceHeaderCarrierTest {
             }
         }
     }
+
+    @Nested
+    @DisplayName("readAndAdopt() with an untrusted depth")
+    class UntrustedDepth {
+
+        private int adoptedDepth(byte[] depthValue) {
+            RecordHeaders headers = new RecordHeaders();
+            headers.add("logged-traceId", "abc123".getBytes(StandardCharsets.UTF_8));
+            headers.add("logged-depth", depthValue);
+            AtomicReference<Integer> observedDepth = new AtomicReference<>();
+            KafkaTraceHeaderCarrier.readAndAdopt(headers, () -> observedDepth.set(FlowContextCarrier.capture().depth()));
+            return observedDepth.get();
+        }
+
+        @Test
+        @DisplayName("clamps a negative or huge depth")
+        void clampsDepth() {
+            assertThat(adoptedDepth("-5".getBytes(StandardCharsets.UTF_8))).isZero();
+            assertThat(adoptedDepth("2147483647".getBytes(StandardCharsets.UTF_8))).isEqualTo(1000);
+        }
+
+        @Test
+        @DisplayName("treats a header with a null value as depth 0 instead of failing")
+        void handlesNullHeaderValue() {
+            assertThat(adoptedDepth(null)).isZero();
+        }
+    }
 }

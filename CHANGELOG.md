@@ -6,6 +6,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-10-28
+
+### Security
+
+- **Log injection in the SLF4J line and MDC:** caller identity, IP and device are now written through a new internal `LogSafe` helper, which replaces line breaks and other control characters (C0, DEL, C1 including NEL, `U+2028`, `U+2029`) with visible escapes such as `\n`. A username or `X-Forwarded-For` value containing CR/LF can no longer forge an extra log line. Values without control characters are written unchanged; the JSON emitter already escaped every value and is not affected.
+- **`X-Forwarded-For` shape check:** with `logged.client-info.trust-forwarded-headers=true`, an entry that is not shaped like an IP address (digits, hex letters, `.` and `:` only, at most 45 characters) is now ignored in favor of `getRemoteAddr()`. Values such as `unknown`, an address with a port, or an IPv6 zone id (`%eth0`) therefore fall back to the connection's address. The README now warns not to enable this setting behind a proxy that appends to the header.
+- **Trace depth bounds:** depths received over HTTP, Kafka and RabbitMQ are parsed by one shared rule (new internal `TraceDepth`) and clamped to `0..1000`; malformed or negative values start a new chain at 0.
+- CI workflow token restricted to read-only (`permissions: contents: read`).
+- Build and tests now run against Spring Boot 4.0.9 (was 4.0.7), which brings patched Spring Framework, Spring Security and Netty versions. The published jars still declare these dependencies as `provided`, so applications keep using their own versions.
+
+### Fixed
+
+- A Kafka `logged-depth` header with a `null` value no longer throws `NullPointerException`; it is treated as depth 0.
+
+### Compatibility
+
+- No public API changes. `LogSafe` and `TraceDepth` live in `com.fayupable.logged.spring.support`, are public only because they are shared across packages, and are not part of the supported API.
+
 ## [1.4.0] - 2026-10-15
 
 ### Added

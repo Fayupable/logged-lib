@@ -173,4 +173,19 @@ class MdcPropagationTest {
             assertThat(MDC.get(LoggedMdcKeys.CALLER_DEVICE)).isNull();
         }
     }
+
+    @Nested
+    @DisplayName("log injection")
+    class LogInjection {
+
+        @Test
+        @DisplayName("writes CR/LF in the IP and device to the MDC as visible escapes")
+        void escapesLineBreaks() {
+            MdcPropagation.push(new FlowContext("trace-abc", 0), "AuthService", "login",
+                    "203.0.113.5\r\nFAKE", "Windows\n / Chrome");
+
+            assertThat(MDC.get(LoggedMdcKeys.CALLER_IP)).isEqualTo("203.0.113.5\\r\\nFAKE");
+            assertThat(MDC.get(LoggedMdcKeys.CALLER_DEVICE)).isEqualTo("Windows\\n / Chrome");
+        }
+    }
 }

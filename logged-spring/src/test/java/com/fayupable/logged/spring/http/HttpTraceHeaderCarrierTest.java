@@ -141,4 +141,23 @@ class HttpTraceHeaderCarrierTest {
             }
         }
     }
+
+    @Nested
+    @DisplayName("readAndAdopt() with an untrusted depth")
+    class UntrustedDepth {
+
+        @Test
+        @DisplayName("clamps a negative or huge depth")
+        void clampsDepth() {
+            assertThat(adoptedDepth("-5")).isZero();
+            assertThat(adoptedDepth("2147483647")).isEqualTo(1000);
+        }
+
+        private int adoptedDepth(String depth) {
+            Map<String, String> headers = Map.of("X-Logged-Trace-Id", "abc123", "X-Logged-Depth", depth);
+            AtomicReference<Integer> observedDepth = new AtomicReference<>();
+            HttpTraceHeaderCarrier.readAndAdopt(headers::get, () -> observedDepth.set(FlowContextCarrier.capture().depth()));
+            return observedDepth.get();
+        }
+    }
 }

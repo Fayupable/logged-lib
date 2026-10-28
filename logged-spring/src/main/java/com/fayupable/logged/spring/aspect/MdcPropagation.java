@@ -1,6 +1,7 @@
 package com.fayupable.logged.spring.aspect;
 
 import com.fayupable.logged.core.model.FlowContext;
+import com.fayupable.logged.spring.support.LogSafe;
 import org.slf4j.MDC;
 
 /**
@@ -43,7 +44,10 @@ final class MdcPropagation {
      * @param callerDevice the caller's coarse device description, or
      *                   {@code null} if device info was not requested; when
      *                   {@code null}, {@link LoggedMdcKeys#CALLER_DEVICE} is
-     *                   left untouched, the same as {@code callerIp}
+     *                   left untouched, the same as {@code callerIp}. Both are
+     *                   written through {@link LogSafe#singleLine(String)},
+     *                   since the application's own log lines use these
+     *                   MDC values in formats this library does not control
      * @return a {@link Runnable} that undoes this write; must be run once
      *         the invocation ends, typically in a {@code finally} block
      */
@@ -60,8 +64,8 @@ final class MdcPropagation {
         MDC.put(LoggedMdcKeys.DEPTH, String.valueOf(context.depth()));
         MDC.put(LoggedMdcKeys.CLASS_NAME, className);
         MDC.put(LoggedMdcKeys.METHOD_NAME, methodName);
-        putIfPresent(LoggedMdcKeys.CALLER_IP, callerIp);
-        putIfPresent(LoggedMdcKeys.CALLER_DEVICE, callerDevice);
+        putIfPresent(LoggedMdcKeys.CALLER_IP, LogSafe.singleLine(callerIp));
+        putIfPresent(LoggedMdcKeys.CALLER_DEVICE, LogSafe.singleLine(callerDevice));
 
         return () -> {
             restore(LoggedMdcKeys.TRACE_ID, previousTraceId);

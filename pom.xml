@@ -6,7 +6,7 @@
 
     <groupId>com.fayupable</groupId>
     <artifactId>logged-lib</artifactId>
-    <version>1.4.0</version>
+    <version>1.4.1</version>
     <packaging>pom</packaging>
 
     <name>logged-lib</name>
@@ -24,7 +24,7 @@
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
-        <spring-boot.version>4.0.7</spring-boot.version>
+        <spring-boot.version>4.0.9</spring-boot.version>
         <micrometer.version>1.15.0</micrometer.version>
 
         <junit.version>5.11.4</junit.version>

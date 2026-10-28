@@ -24,6 +24,9 @@ final class RequestClientIpResolver {
 
     private static final String FORWARDED_FOR_HEADER = "X-Forwarded-For";
 
+    /** Length of the longest textual IPv6 address, an IPv4-mapped one. */
+    private static final int MAX_IP_LENGTH = 45;
+
     private RequestClientIpResolver() {
     }
 
@@ -65,10 +68,38 @@ final class RequestClientIpResolver {
         if (trustForwardedHeaders) {
             String forwardedFor = request.getHeader(FORWARDED_FOR_HEADER);
             if (forwardedFor != null && !forwardedFor.isBlank()) {
-                return forwardedFor.split(",")[0].trim();
+                String forwardedIp = forwardedFor.split(",")[0].trim();
+                if (looksLikeIpAddress(forwardedIp)) {
+                    return forwardedIp;
+                }
             }
         }
 
         return request.getRemoteAddr();
+    }
+
+    /**
+     * Whether {@code value} has the shape of an IPv4 or IPv6 address: only
+     * hex digits, dots and colons, at most {@value #MAX_IP_LENGTH}
+     * characters. Anything else taken from {@code X-Forwarded-For} (text, a
+     * line break, a port, {@code "unknown"}) is ignored in favor of
+     * {@link HttpServletRequest#getRemoteAddr()}, so a forged header can
+     * never write arbitrary text into a log line. This is a shape check, not
+     * full validation, on purpose: {@link java.net.InetAddress} parsing may
+     * fall back to a DNS lookup, which has no place on a request path.
+     */
+    private static boolean looksLikeIpAddress(String value) {
+        if (value.isEmpty() || value.length() > MAX_IP_LENGTH) {
+            return false;
+        }
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            boolean allowed = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+                    || c == '.' || c == ':';
+            if (!allowed) {
+                return false;
+            }
+        }
+        return true;
     }
 }

@@ -150,4 +150,26 @@ class RabbitTraceHeaderCarrierTest {
             }
         }
     }
+
+    @Nested
+    @DisplayName("readAndAdopt() with an untrusted depth")
+    class UntrustedDepth {
+
+        @Test
+        @DisplayName("clamps a negative or huge depth")
+        void clampsDepth() {
+            assertThat(adoptedDepth("-5")).isZero();
+            assertThat(adoptedDepth("2147483647")).isEqualTo(1000);
+            assertThat(adoptedDepth("4")).isEqualTo(4);
+        }
+
+        private int adoptedDepth(String depth) {
+            MessageProperties properties = new MessageProperties();
+            properties.setHeader("logged-traceId", "abc123");
+            properties.setHeader("logged-depth", depth);
+            AtomicReference<Integer> observedDepth = new AtomicReference<>();
+            RabbitTraceHeaderCarrier.readAndAdopt(properties, () -> observedDepth.set(FlowContextCarrier.capture().depth()));
+            return observedDepth.get();
+        }
+    }
 }

@@ -2,6 +2,7 @@ package com.fayupable.logged.spring.rabbitmq;
 
 import com.fayupable.logged.core.model.FlowContext;
 import com.fayupable.logged.spring.aspect.FlowContextCarrier;
+import com.fayupable.logged.spring.support.TraceDepth;
 import org.springframework.amqp.core.MessageProperties;
 
 import java.util.regex.Pattern;
@@ -109,13 +110,6 @@ public final class RabbitTraceHeaderCarrier {
 
     private static int readDepth(MessageProperties properties) {
         Object depth = properties.getHeaders().get(DEPTH_HEADER);
-        if (!(depth instanceof String depthString)) {
-            return 0;
-        }
-        try {
-            return Integer.parseInt(depthString);
-        } catch (NumberFormatException malformedDepth) {
-            return 0;
-        }
+        return depth instanceof String depthString ? TraceDepth.parse(depthString) : 0;
     }
 }
