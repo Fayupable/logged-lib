@@ -1,11 +1,9 @@
 name: CI
 
+# Runs on pull requests (and on demand) only. Each run of the verify job
+# waits for a maintainer's approval through the ci-approval environment;
+# the "Review deployments" button appears on the pull request itself.
 on:
-  push:
-    branches:
-      - main
-      - dev
-      - 'dev/**'
   pull_request:
     branches:
       - main
@@ -20,6 +18,7 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    environment: ci-approval
 
     steps:
       - name: Checkout
@@ -48,8 +47,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Require pull requests into main to come from dev
+        # The branch name is passed through an environment variable rather
+        # than interpolated into the script, so a crafted branch name cannot
+        # inject shell commands.
+        env:
+          HEAD_REF: ${{ github.head_ref }}
         run: |
-          if [[ "${{ github.head_ref }}" != "dev" && "${{ github.head_ref }}" != dev/* ]]; then
-            echo "Pull requests into main must originate from 'dev' or a 'dev/**' branch, not '${{ github.head_ref }}'."
+          if [[ "$HEAD_REF" != "dev" && "$HEAD_REF" != dev/* ]]; then
+            echo "Pull requests into main must originate from 'dev' or a 'dev/**' branch, not '$HEAD_REF'."
             exit 1
           fi
