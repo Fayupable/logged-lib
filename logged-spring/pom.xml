@@ -7,7 +7,7 @@
     <parent>
         <groupId>com.fayupable</groupId>
         <artifactId>logged-lib</artifactId>
-        <version>1.4.1</version>
+        <version>1.5.0</version>
     </parent>
 
     <artifactId>logged-spring</artifactId>
@@ -123,6 +123,23 @@
 
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <!-- Generates META-INF/spring-configuration-metadata.json, so
+                         logged.* properties get IDE completion, descriptions and
+                         deprecation warnings. Build-time only: nothing is added to
+                         the jar's runtime classpath or to consumers' dependencies. -->
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.springframework.boot</groupId>
+                            <artifactId>spring-boot-configuration-processor</artifactId>
+                            <version>${spring-boot.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>

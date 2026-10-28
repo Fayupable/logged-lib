@@ -1,5 +1,13 @@
 package com.fayupable.logged.spring.config;
 
+import org.springframework.web.context.request.ServletRequestAttributes;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.slf4j.LoggerFactory;
+import org.junit.jupiter.api.BeforeEach;
+import ch.qos.logback.core.read.ListAppender;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.Level;
 import org.springframework.aop.aspectj.annotation.AspectJProxyFactory;
 import com.fayupable.logged.core.model.MethodInvocationEvent;
 import com.fayupable.logged.core.annotation.Logged;
@@ -343,6 +351,89 @@ class LoggedAutoConfigurationTest {
             contextRunner.withUserConfiguration(RecordingConfiguration.class)
                     .withPropertyValues("logged.client-info.include-device=true")
                     .run(context -> assertThat(deviceOfPlainCall(context)).isEqualTo("Windows / Chrome 129"));
+        }
+    }
+
+    @Nested
+    @DisplayName("deprecated logged.client-info.trust-forwarded-headers")
+    class DeprecatedTrustForwardedHeaders {
+
+        private ListAppender<ILoggingEvent> appender;
+        private ch.qos.logback.classic.Logger configLogger;
+
+        @BeforeEach
+        void attachAppender() {
+            configLogger = (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(LoggedAutoConfiguration.class);
+            appender = new ListAppender<>();
+            appender.start();
+            configLogger.addAppender(appender);
+        }
+
+        @AfterEach
+        void detachAppender() {
+            configLogger.detachAppender(appender);
+        }
+
+        private List<ILoggingEvent> deprecationWarnings() {
+            return appender.list.stream()
+                    .filter(event -> event.getLevel() == Level.WARN)
+                    .filter(event -> event.getFormattedMessage().contains("trust-forwarded-headers is deprecated"))
+                    .toList();
+        }
+
+        @Test
+        @DisplayName("logs one startup warning when enabled, and still honors the setting")
+        @SuppressWarnings("deprecation")
+        void warnsOnceWhenEnabled() {
+            contextRunner.withPropertyValues("logged.client-info.trust-forwarded-headers=true").run(context -> {
+                assertThat(context).hasSingleBean(IClientInfoPort.class);
+                assertThat(context.getBean(LoggedProperties.class).getClientInfo().isTrustForwardedHeaders()).isTrue();
+                assertThat(deprecationWarnings()).hasSize(1);
+                assertThat(deprecationWarnings().get(0).getFormattedMessage())
+                        .contains("server.forward-headers-strategy=native");
+            });
+        }
+
+        @Test
+        @DisplayName("also warns once for the HTTP-only adapter")
+        void warnsOnceForHttpOnlyAdapter() {
+            contextRunner
+                    .withClassLoader(new FilteredClassLoader(Authentication.class))
+                    .withPropertyValues("logged.client-info.trust-forwarded-headers=true")
+                    .run(context -> {
+                        assertThat(context.getBean(IClientInfoPort.class)).isInstanceOf(HttpRequestClientInfoAdapter.class);
+                        assertThat(deprecationWarnings()).hasSize(1);
+                    });
+        }
+
+        @Test
+        @DisplayName("passes the setting to the adapter: X-Forwarded-For is used only when enabled")
+        void passesSettingToAdapter() {
+            MockHttpServletRequest request = new MockHttpServletRequest();
+            request.setRemoteAddr("203.0.113.5");
+            request.addHeader("X-Forwarded-For", "198.51.100.99");
+            RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+            try {
+                contextRunner.withPropertyValues("logged.client-info.trust-forwarded-headers=true").run(context ->
+                        assertThat(context.getBean(IClientInfoPort.class).resolveCallerIp()).isEqualTo("198.51.100.99"));
+                contextRunner.run(context ->
+                        assertThat(context.getBean(IClientInfoPort.class).resolveCallerIp()).isEqualTo("203.0.113.5"));
+            } finally {
+                RequestContextHolder.resetRequestAttributes();
+            }
+        }
+
+        @Test
+        @DisplayName("logs nothing when the setting is left at its default")
+        void silentByDefault() {
+            contextRunner.run(context -> assertThat(deprecationWarnings()).isEmpty());
+        }
+
+        @Test
+        @DisplayName("logs nothing when the setting is explicitly false")
+        void silentWhenFalse() {
+            contextRunner.withPropertyValues("logged.client-info.trust-forwarded-headers=false")
+                    .run(context -> assertThat(deprecationWarnings()).isEmpty());
         }
     }
 }

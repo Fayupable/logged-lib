@@ -2,6 +2,7 @@ package com.fayupable.logged.spring.config;
 
 import com.fayupable.logged.core.annotation.CallerMode;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.DeprecatedConfigurationProperty;
 
 /**
  * Configuration properties for this library, bound under the {@code logged}
@@ -64,6 +65,14 @@ public class LoggedProperties {
          * confirming that such a proxy is actually in place; see
          * {@link com.fayupable.logged.spring.security.SpringSecurityClientInfoAdapter}
          * for the full explanation.
+         *
+         * <p>Deprecated since 1.5.0: behind a proxy that appends to the
+         * header the leftmost entry this setting uses can be spoofed. Prefer
+         * Spring Boot's {@code server.forward-headers-strategy=native}, which
+         * resolves the client address from the right, skipping trusted
+         * proxies, and rewrites {@code getRemoteAddr()} for the whole
+         * application; this library then picks it up with this setting off.
+         * The setting keeps working unchanged.
          */
         private boolean trustForwardedHeaders = false;
 
@@ -96,10 +105,17 @@ public class LoggedProperties {
          */
         private boolean includeDevice = false;
 
+        @Deprecated(since = "1.5.0")
+        @DeprecatedConfigurationProperty(
+                reason = "The leftmost X-Forwarded-For entry can be spoofed behind a proxy that appends to the "
+                        + "header. Let Spring Boot resolve the client address instead and keep this off.",
+                replacement = "server.forward-headers-strategy",
+                since = "1.5.0")
         public boolean isTrustForwardedHeaders() {
             return trustForwardedHeaders;
         }
 
+        @Deprecated(since = "1.5.0")
         public void setTrustForwardedHeaders(boolean trustForwardedHeaders) {
             this.trustForwardedHeaders = trustForwardedHeaders;
         }
