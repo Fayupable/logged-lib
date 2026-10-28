@@ -16,6 +16,8 @@ import com.fayupable.logged.spring.security.HttpRequestClientInfoAdapter;
 import com.fayupable.logged.spring.security.SpringSecurityClientInfoAdapter;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -61,6 +63,8 @@ import org.springframework.security.core.Authentication;
 @EnableConfigurationProperties(LoggedProperties.class)
 public class LoggedAutoConfiguration {
 
+    private static final Logger log = LoggerFactory.getLogger(LoggedAutoConfiguration.class);
+
     /**
      * Registered as a {@code static} bean method, per Spring's own guidance
      * for {@link org.springframework.beans.factory.config.BeanPostProcessor}
@@ -92,14 +96,14 @@ public class LoggedAutoConfiguration {
             throw new IllegalStateException("logged.client-info.caller=custom requires a "
                     + CallerIdentityResolver.class.getName() + " bean, but none is defined");
         }
-        return new SpringSecurityClientInfoAdapter(clientInfo.isTrustForwardedHeaders(), clientInfo.getCaller(), resolver);
+        return new SpringSecurityClientInfoAdapter(trustForwardedHeaders(properties), clientInfo.getCaller(), resolver);
     }
 
     @Bean
     @ConditionalOnMissingBean(IClientInfoPort.class)
     @ConditionalOnClass(HttpServletRequest.class)
     public IClientInfoPort httpRequestClientInfoAdapter(LoggedProperties properties) {
-        return new HttpRequestClientInfoAdapter(properties.getClientInfo().isTrustForwardedHeaders());
+        return new HttpRequestClientInfoAdapter(trustForwardedHeaders(properties));
     }
 
     @Bean
@@ -129,5 +133,22 @@ public class LoggedAutoConfiguration {
                                       IClientInfoPort clientInfoPort, LoggedProperties properties) {
         return new LoggedAspect(eventEmitter, metricsRecorder, clientInfoPort, properties.getMdc().isEnabled(),
                 properties.getClientInfo().isIncludeDevice());
+    }
+
+    /**
+     * Reads the deprecated {@code logged.client-info.trust-forwarded-headers}
+     * setting, which is still honored, and logs a one-time warning when it is
+     * enabled. Only one client info adapter bean is ever created, so the
+     * warning appears once per application context.
+     */
+    @SuppressWarnings("deprecation") // deprecated but still honored; this is its single read site
+    private static boolean trustForwardedHeaders(LoggedProperties properties) {
+        boolean trusted = properties.getClientInfo().isTrustForwardedHeaders();
+        if (trusted) {
+            log.warn("logged.client-info.trust-forwarded-headers is deprecated: it trusts the leftmost "
+                    + "X-Forwarded-For entry, which can be spoofed behind a proxy that appends to the header. "
+                    + "Set server.forward-headers-strategy=native instead and turn this setting off.");
+        }
+        return trusted;
     }
 }
